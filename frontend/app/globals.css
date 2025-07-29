@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+
+@layer base {
+  * {
+    @apply border-military-gray;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-military-black text-military-light font-sans antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-military-green hover:bg-green-600 text-white font-medium px-4 py-2 rounded-lg transition-colors duration-200;
+  }
+
+  .btn-secondary {
+    @apply bg-military-gray hover:bg-gray-600 text-military-light font-medium px-4 py-2 rounded-lg transition-colors duration-200;
+  }
+
+  .btn-danger {
+    @apply bg-military-red hover:bg-red-600 text-white font-medium px-4 py-2 rounded-lg transition-colors duration-200;
+  }
+
+  .card {
+    @apply bg-military-dark border border-military-gray rounded-lg p-6 shadow-lg;
+  }
+
+  .input-field {
+    @apply bg-military-dark border border-military-gray text-military-light px-3 py-2 rounded-lg focus:border-military-green focus:outline-none transition-colors duration-200;
+  }
+
+  .table-row {
+    @apply border-b border-military-gray hover:bg-military-dark/50 transition-colors duration-200;
+  }
+}

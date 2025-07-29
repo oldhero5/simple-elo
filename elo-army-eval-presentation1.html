@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>From Peer Reviews to Command Assessment: An Elo-Based Revolution</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #1a1a1a;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #presentation {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        .slide {
+            width: 1920px;
+            height: 1080px;
+            background: white;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(var(--scale, 1));
+            padding: 80px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+
+        .slide.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .slide-header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 8px;
+            background: linear-gradient(90deg, #4B5320 0%, #8B7355 50%, #4B5320 100%);
+        }
+
+        .slide-footer {
+            position: absolute;
+            bottom: 30px;
+            left: 80px;
+            right: 80px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .slide-number {
+            position: absolute;
+            bottom: 30px;
+            right: 80px;
+            font-size: 18px;
+            color: #4B5320;
+            font-weight: bold;
+        }
+
+        h1 {
+            font-size: 72px;
+            color: #4B5320;
+            margin-bottom: 40px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        h2 {
+            font-size: 48px;
+            color: #4B5320;
+            margin-bottom: 30px;
+            font-weight: 600;
+        }
+
+        h3 {
+            font-size: 36px;
+            color: #333;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        p, li {
+            font-size: 28px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .subtitle {
+            font-size: 36px;
+            color: #666;
+            margin-bottom: 60px;
+        }
+
+        .title-slide {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
+            align-items: center;
+        }
+
+        .highlight-box {
+            background: #f5f5f5;
+            border-left: 6px solid #4B5320;
+            padding: 30px;
+            margin: 30px 0;
+            border-radius: 4px;
+        }
+
+        .formula-box {
+            background: #f9f9f9;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin: 40px 0;
+        }
+
+        .formula {
+            font-size: 36px;
+            font-family: 'Courier New', monospace;
+            color: #333;
+            margin: 20px 0;
+        }
+
+        .officer-card {
+            width: 120px;
+            height: 150px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .officer-card .name {
+            font-size: 20px;
+            margin-bottom: 5px;
+        }
+
+        .officer-card .score {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .red { background: #DC3545; }
+        .green { background: #28A745; }
+        .purple { background: #6F42C1; }
+        .orange { background: #FD7E14; }
+        .blue { background: #007BFF; }
+        .teal { background: #20C997; }
+
+        .vs {
+            font-size: 48px;
+            color: #666;
+            font-weight: bold;
+            margin: 0 40px;
+        }
+
+        .arrow {
+            font-size: 48px;
+            color: #4B5320;
+            margin: 0 20px;
+        }
+
+        .comparison-visual {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 40px 0;
+        }
+
+        .ranking-flow {
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            margin: 60px 0;
+        }
+
+        .navigation {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            background: rgba(0,0,0,0.8);
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .nav-button {
+            background: #4B5320;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 0 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .nav-button:hover {
+            background: #3a4119;
+        }
+
+        #slideInfo {
+            color: white;
+            margin: 0 15px;
+            font-size: 18px;
+        }
+
+        .scenario-box {
+            background: #f0f8ff;
+            border: 2px solid #007BFF;
+            border-radius: 8px;
+            padding: 30px;
+            margin: 30px 0;
+        }
+
+        .experiment-card {
+            background: white;
+            border: 2px solid #4B5320;
+            border-radius: 8px;
+            padding: 30px;
+            margin: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .timeline {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 60px 0;
+            position: relative;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: #ddd;
+            z-index: 0;
+        }
+
+        .timeline-item {
+            background: white;
+            border: 3px solid #4B5320;
+            border-radius: 50%;
+            width: 120px;
+            height: 120px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1;
+            text-align: center;
+        }
+
+        .pros-cons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin: 40px 0;
+        }
+
+        .pros {
+            background: #e8f5e9;
+            border: 2px solid #28A745;
+            padding: 30px;
+            border-radius: 8px;
+        }
+
+        .cons {
+            background: #ffebee;
+            border: 2px solid #DC3545;
+            padding: 30px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div id="presentation">
+        <!-- Slide 1: Title -->
+        <div class="slide active title-slide">
+            <div class="slide-header"></div>
+            <h1>From Peer Reviews to Command Assessment</h1>
+            <p class="subtitle">An Elo-Based Revolution in Officer Evaluations</p>
+            <br>
+            <p style="font-size: 32px; color: #4B5320;">ORSA Discussion Forum</p>
+            <p style="font-size: 24px; color: #666;">Hypothesis Development & Experimental Design</p>
+        </div>
+
+        <!-- Slide 2: The Story Begins -->
+        <div class="slide">
+            <div class="slide-header"></div>
+            <h1>Our Story Begins at Ranger School...</h1>
+
+            <div class="content-grid">
+                <div>
+                    <div class="scenario-box">
+                        <h3>The Problem</h3>
+                        <p>60% peer evaluation threshold</p>
+                        <p>Binary pass/fail loses granularity</p>
+                        <p>Squad politics influence outcomes</p>
+                    </div>
+
+                    <div class="highlight-box" style="margin-top: 40px;">
+                        <h3>The Innovation</h3>
+                        <p><strong>USMA's OR Center Solution:</strong></p>
+                        <p>Elo-based peer ratings during summer training</p>
+                    </div>
+                </div>
+
+                <div style="text-align: center;">
+                    <canvas id="rangerChart" width="500" height="400"></canvas>
+                    <p style="font-size: 24px; margin-top: 20px; color: #666;">From binary to continuous assessment</p>
+                </div>
+            </div>
+
+            <div class="slide-number">2</div>
+        </div>
+
+        <!-- Slide 3: The Bigger Problem -->
+        <div class="slide">
+            <div class="slide-header"></div>
+            <h1>But What About Senior Raters?</h1>
+
+            <div style="text-align: center; margin-bottom: 60px;">
+                <div class="highlight-box" style="max-width: 800px; margin: 0 auto; background: #fff3cd; border-left-color: #ffc107;">
+                    <p style="font-size: 32px; color: #856404;"><strong>"The Magical Number Seven, Plus or Minus Two"</strong></p>
+                    <p style="font-size: 24px; color: #856404;">Humans can only rank 7±2 items effectively</p>
+                </div>
+            </div>
+
+            <div class="scenario-box" style="max-width: 1200px; margin: 0 auto;">
+                <h2 style="text-align: center; color: #007BFF;">Scenario: Division Commander's Dilemma</h2>
+                <p style="text-align: center; font-size: 32px; margin: 30px 0;">Colonel Johnson commands the 1st Infantry Division</p>
+
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; margin: 40px 0;">
+                    <div class="officer-card red">
+                        <div class="name">LTC Smith</div>
+                        <div style="font-size: 16px;">1-22 IN</div>
+                    </div>
+                    <div class="officer-card green">
+                        <div class="name">LTC Jones</div>
+                        <div style="font-size: 16px;">2-22 IN</div>
+                    </div>
+                    <div class="officer-card purple">
+                        <div class="name">LTC Brown</div>
+                        <div style="font-size: 16px;">1-5 FA</div>
+                    </div>
+                    <div class="officer-card orange">
+                        <div class="name">LTC Davis</div>
+                        <div style="font-size: 16px;">2-5 FA</div>
+                    </div>
+                    <div class="officer-card blue">
+                        <div class="name">LTC Wilson</div>
+                        <div style="font-size: 16px;">101 BSB</div>
+                    </div>
+                </div>
+
+                <p style="text-align: center; font-size: 36px; color: #DC3545; font-weight: bold;">
+                    ... and 25 more battalion commanders
+                </p>
+
+                <p style="text-align: center; font-size: 28px; margin-top: 30px;">
+                    How does COL Johnson fairly distribute his constrained MQ blocks?
+                </p>
+            </div>
+
+            <div class="slide-number">3</div>
+        </div>
+
+        <!-- Slide 4: Elo Mathematics -->
+        <div class="slide">
+            <div class="slide-header"></div>
+            <h1>Elo: The Elegant Solution</h1>
+
+            <div class="content-grid">
+                <div>
+                    <h3>The Mathematics</h3>
+                    <div class="formula-box">
+                        <p style="font-size: 28px; margin-bottom: 20px;">Expected Performance:</p>
+                        <p class="formula">E<sub>A</sub> = 1 / (1 + 10<sup>(R<sub>B</sub>-R<sub>A</sub>)/400</sup>)</p>
+                        <br>
+                        <p style="font-size: 28px; margin-bottom: 20px;">Rating Update:</p>
+                        <p class="formula">R'<sub>A</sub> = R<sub>A</sub> + K(S<sub>A</sub> - E<sub>A</sub>)</p>
+                        <br>
+                        <p style="font-size: 20px; color: #666;">K = 32 (typical value)</p>
+                    </div>
+                </div>
+
+                <div>
+                    <h3>Why It Works</h3>
+                    <div style="background: #e8f5e9; padding: 30px; border-radius: 8px; margin: 20px 0;">
+                        <p>✓ Reduces cognitive load to A vs B</p>
+                        <p>✓ Captures relative performance</p>
+                        <p>✓ Updates dynamically over time</p>
+                        <p>✓ No arbitrary thresholds</p>
+                    </div>
+
+                    <div style="background: #fff3cd; padding: 30px; border-radius: 8px;">
+                        <h4 style="color: #856404;">For ORSA Officers:</h4>
+                        <p style="font-size: 24px;">Familiar from chess, esports, sports analytics</p>
+                        <p style="font-size: 24px;">Proven convergence properties</p>
+                        <p style="font-size: 24px;">Well-studied statistical behavior</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="slide-number">4</div>
+        </div>
+
+        <!-- Slide 5: Live Scenario Part 1 -->
+        <div class="slide">
+            <div class="slide-header"></div>
+            <h1>COL Johnson's Quarterly Assessment</h1>
+            <h2 style="text-align: center; color: #007BFF;">Q1: Post-JRTC Rotation</h2>
+
+            <div style="text-align: center; margin: 40px 0;">
+                <p style="font-size: 32px; margin-bottom: 40px;">Instead of ranking all 30 commanders...</p>
+
+                <div class="comparison-visual">
+                    <div class="officer-card red">
+                        <div class="name">LTC Smith</div>
+                        <div class="score">1000</div>
+                    </div>
+                    <span class="vs">VS</span>
+                    <div class="officer-card green">
+                        <div class="name">LTC Jones</div>
+                        <div class="score">1000</div>
+                    </div>
+                </div>
+
+                <div class="highlight-box" style="max-width: 800px; margin: 40px auto;">
+                    <p style="text-align: center; font-size: 28px;">
+                        "Who performed better during JRTC rotation?"
+                    </p>
+                    <p style="text-align: center; font-size: 24px; color: #666; margin-top: 20px;">
+                        Smith's battalion had superior tactical performance → Smith wins
+                    </p>
+                </div>
+
+                <div class="comparison-visual">
+                    <div class="officer-card red">
+                        <div class="name">LTC Smith</div>
+                        <div class="score">1016</div>
+                        <span style="color: #28A745; font-size: 18px;">+16</span>
+                    </div>
+                    <span class="arrow">→</span>
+                    <div class="officer-card green">
+                        <div class="name">LTC Jones</div>
+                        <div class="score">984</div>
+                        <span style="color: #DC3545; font-size: 18px;">-16</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="slide-number">5</div>
+        </div>
+
+        <!-- Slide 6: Live Scenario Part 2 -->
+        <div class="slide">
+            <div class="slide-header"></div>
+            <h1>Building the Rankings Over Time</h1>
+
+            <div style="margin: 40px 0;">
+                <canvas id="progressChart" width="1200" height="400"></canvas>
+            </div>
+
+            <div class="timeline">
+                <div class="timeline-item">
+                    <h4 style="font-size: 18px;">Q1</h4>
+                    <p style="font-size: 16px;">JRTC</p>
+                </div>
+                <div class="timeline-item">
+                    <h4 style="font-size: 18px;">Q2</h4>
+                    <p style="font-size: 16px;">Gunnery</p>
+                </div>
+                <div class="timeline-item">
+                    <h4 style="font-size: 18px;">Q3</h4>
+                    <p style="font-size: 16px;">CTC</p>
+                </div>
+                <div class="timeline-item">
+                    <h4 style="font-size: 18px;">Q4</h4>
+                    <p style="font-size: 16px;">Annual</p>
+                </div>
+            </div>
+
+            <div class="highlight-box" style="text-align: center; margin-top: 40px;">
+                <p style="font-size: 32px;"><strong>Key Insight:</strong> Natural stratification emerges from performance</p>
+                <p style="font-size: 24px; margin-top: 20px;">No forced distribution needed - merit drives the spread</p>
+            </div>
+
+            <div class="slide-number">6</div>
+        </div>
+
+        <!-- Slide 7: System Benefits -->
+        <div class="slide">
+            <div class="slide-header"></div>
+            <h1>Why This Changes Everything</h1>
+
+            <div class="pros-cons">
+                <div class="pros">
+                    <h2 style="color: #28A745; text-align: center;">Solutions Delivered</h2>
+                    <p>✓ <strong>Profile Gaming:</strong> Eliminated - no constraints to manage</p>
+                    <p>✓ <strong>Senior Rater Gaming:</strong> No need to "save" MQs - scores carry with officers</p>
+                    <p>✓ <strong>Cognitive Overload:</strong> Simple A vs B decisions</p>
+                    <p>✓ <strong>PCS Continuity:</strong> Ratings carry forward</p>
+                    <p>✓ <strong>Transparency:</strong> Mathematical objectivity</p>
+                    <p>✓ <strong>Development:</strong> Clear performance signals</p>
+                </div>
+
+                <div style="background: #f0f8ff; border: 2px solid #007BFF; padding: 30px; border-radius: 8px;">
+                    <h2 style="color: #007BFF; text-align: center;">BCAP Validation</h2>
+                    <p style="font-size: 24px;">The Battalion Command Assessment Program proves objective assessments work:</p>
+                    <ul style="list-style: none; padding: 0; margin-top: 20px;">
+                        <li style="font-size: 22px;">• Blind panel interviews</li>
+                        <li style="font-size: 22px;">• Cognitive testing</li>
+                        <li style="font-size: 22px;">• Peer assessments</li>
+                        <li style="font-size: 22px;">• Written communication</li>
+                    </ul>
+                    <p style="font-size: 24px; margin-top: 20px; color: #007BFF; font-weight: bold;">
+                        Elo extends this objectivity to routine evaluations
+                    </p>
+                </div>
+            </div>
+
+            <div class="slide-number">7</div>
+        </div>
+
+
+
+        <!-- Slide 8: Implementation Considerations -->
+        <div class="slide">
+            <div class="slide-header"></div>
+            <h1>Technical Considerations</h1>
+
+            <div>
+                <h3>System Design Challenges</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 30px; margin-top: 40px;">
+                    <div style="background: #ffebee; padding: 30px; border-radius: 8px;">
+                        <p><strong>Cold Start Problem</strong></p>
+                        <p style="font-size: 24px;">New officers need initial ratings</p>
+                        <p style="font-size: 24px;">Solution: Conditional starting values?</p>
+                    </div>
+
+                    <div style="background: #fff3cd; padding: 30px; border-radius: 8px;">
+                        <p><strong>Context Switching</strong></p>
+                        <p style="font-size: 24px;">Infantry vs Support performance</p>
+                        <p style="font-size: 24px;">Solution: Domain-specific ratings?</p>
+                    </div>
+
+                    <div style="background: #f0f8ff; padding: 30px; border-radius: 8px;">
+                        <p><strong>Gaming Prevention</strong></p>
+                        <p style="font-size: 24px;">Avoiding strategic comparisons</p>
+                        <p style="font-size: 24px;">Solution: Random pairing algorithms?</p>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 60px;">Critical Research Questions for Discussion</h3>
+                <div class="highlight-box" style="text-align: center; background: #e8f5e9;">
+                    <p style="font-size: 28px;">1. How many comparisons needed for stable ratings?</p>
+                    <p style="font-size: 28px;">2. Multi-domain Elo variants vs single score?</p>
+                    <p style="font-size: 28px;">3. Integration with existing HR systems?</p>
+                    <p style="font-size: 28px;">4. Experimental design for pilot validation?</p>
+                </div>
+            </div>
+
+            <div class="slide-number">8</div>
+        </div>
+
+        <!-- Slide 10: Call to Action -->
+        <div class="slide">
+            <div class="slide-header"></div>
+            <h1>Let's Build This Together</h1>
+
+            <div style="text-align: center; margin: 60px 0;">
+                <div class="highlight-box" style="max-width: 1000px; margin: 0 auto; background: #f0f8ff; border-left-color: #007BFF;">
+                    <h2 style="color: #007BFF;">The Vision</h2>
+                    <p style="font-size: 32px; margin: 30px 0;">
+                        Transform Army talent management from subjective rankings to objective, data-driven assessments
+                    </p>
+                </div>
+
+                <div class="ranking-flow" style="margin-top: 60px;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 72px;">📊</div>
+                        <h3>Start Small</h3>
+                        <p>Pilot with BCTs</p>
+                    </div>
+                    <div style="font-size: 48px; color: #4B5320;">→</div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 72px;">📈</div>
+                        <h3>Prove Value</h3>
+                        <p>Validate predictions</p>
+                    </div>
+                    <div style="font-size: 48px; color: #4B5320;">→</div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 72px;">🎯</div>
+                        <h3>Scale Impact</h3>
+                        <p>Army-wide reform</p>
+                    </div>
+                </div>
+
+                <div style="margin-top: 60px;">
+                    <h2 style="color: #4B5320;">Discussion Questions</h2>
+                    <p style="font-size: 28px;">1. What experimental design would you propose?</p>
+                    <p style="font-size: 28px;">2. How do we handle multi-dimensional performance?</p>
+                    <p style="font-size: 28px;">3. What are the biggest statistical challenges?</p>
+                    <p style="font-size: 28px;">4. How do we ensure adoption and trust?</p>
+                </div>
+            </div>
+
+            <div class="slide-number">9</div>
+        </div>
+    </div>
+
+    <div class="navigation">
+        <button class="nav-button" onclick="previousSlide()">Previous</button>
+        <span id="slideInfo">1 / 9</span>
+        <button class="nav-button" onclick="nextSlide()">Next</button>
+    </div>
+
+    <script>
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+
+        function updateScale() {
+            const scale = Math.min(
+                window.innerWidth / 1920,
+                window.innerHeight / 1080,
+                1
+            );
+            document.documentElement.style.setProperty('--scale', scale);
+        }
+
+        function showSlide(index) {
+            if (index < 0) index = 0;
+            if (index >= totalSlides) index = totalSlides - 1;
+
+            currentSlide = index;
+
+            slides.forEach((slide, i) => {
+                if (i === currentSlide) {
+                    slide.classList.add('active');
+                } else {
+                    slide.classList.remove('active');
+                }
+            });
+
+            document.getElementById('slideInfo').textContent = `${currentSlide + 1} / ${totalSlides}`;
+
+            drawChartsForSlide(currentSlide);
+        }
+
+        function nextSlide() {
+            if (currentSlide < totalSlides - 1) {
+                showSlide(currentSlide + 1);
+            }
+        }
+
+        function previousSlide() {
+            if (currentSlide > 0) {
+                showSlide(currentSlide - 1);
+            }
+        }
+
+        function drawChartsForSlide(slideIndex) {
+            switch(slideIndex) {
+                case 1:
+                    drawRangerChart();
+                    break;
+                case 5:
+                    drawProgressChart();
+                    break;
+            }
+        }
+
+        function drawRangerChart() {
+            const canvas = document.getElementById('rangerChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw before/after comparison
+            // Before - Binary
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText('Traditional: Binary Pass/Fail', 250, 40);
+
+            // Draw threshold bar
+            ctx.fillStyle = '#ddd';
+            ctx.fillRect(100, 80, 300, 40);
+            ctx.fillStyle = '#28A745';
+            ctx.fillRect(100, 80, 180, 40);
+            ctx.fillStyle = '#DC3545';
+            ctx.fillRect(280, 80, 120, 40);
+
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(280, 60);
+            ctx.lineTo(280, 140);
+            ctx.stroke();
+
+            ctx.fillStyle = '#333';
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('60%', 280, 55);
+
+            // After - Elo Distribution
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText('With Elo: Continuous Distribution', 250, 220);
+
+            // Draw bell curve
+            ctx.strokeStyle = '#4B5320';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+
+            for (let x = 50; x < 450; x++) {
+                const normalizedX = (x - 250) / 60;
+                const y = 320 - (60 * Math.exp(-0.5 * normalizedX * normalizedX));
+
+                if (x === 50) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+
+            // Add gradient
+            const gradient = ctx.createLinearGradient(0, 260, 0, 320);
+            gradient.addColorStop(0, 'rgba(75, 83, 32, 0.3)');
+            gradient.addColorStop(1, 'rgba(75, 83, 32, 0.1)');
+
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            for (let x = 50; x < 450; x++) {
+                const normalizedX = (x - 250) / 60;
+                const y = 320 - (60 * Math.exp(-0.5 * normalizedX * normalizedX));
+
+                if (x === 50) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.lineTo(450, 320);
+            ctx.lineTo(50, 320);
+            ctx.closePath();
+            ctx.fill();
+
+            // Labels
+            ctx.fillStyle = '#666';
+            ctx.font = '14px Arial';
+            ctx.fillText('800', 100, 340);
+            ctx.fillText('1000', 250, 340);
+            ctx.fillText('1200', 400, 340);
+        }
+
+        function drawProgressChart() {
+            const canvas = document.getElementById('progressChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Sample battalion commanders
+            const commanders = [
+                { name: 'Smith', color: '#DC3545', scores: [1000, 1016, 1048, 1072, 1089] },
+                { name: 'Jones', color: '#28A745', scores: [1000, 984, 975, 988, 1005] },
+                { name: 'Brown', color: '#6F42C1', scores: [1000, 1008, 1024, 1015, 1030] },
+                { name: 'Davis', color: '#FD7E14', scores: [1000, 992, 980, 970, 955] },
+                { name: 'Wilson', color: '#007BFF', scores: [1000, 1020, 1035, 1055, 1068] }
+            ];
+
+            // Draw axes
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(100, 350);
+            ctx.lineTo(1100, 350);
+            ctx.moveTo(100, 50);
+            ctx.lineTo(100, 350);
+            ctx.stroke();
+
+            // Draw grid lines
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 4; i++) {
+                const y = 350 - (i * 75);
+                ctx.beginPath();
+                ctx.moveTo(100, y);
+                ctx.lineTo(1100, y);
+                ctx.stroke();
+
+                ctx.fillStyle = '#666';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'right';
+                ctx.fillText((900 + i * 50).toString(), 90, y + 5);
+            }
+
+            // Quarter labels
+            const quarters = ['Start', 'Q1', 'Q2', 'Q3', 'Q4'];
+            ctx.textAlign = 'center';
+            quarters.forEach((q, i) => {
+                ctx.fillText(q, 100 + i * 250, 370);
+            });
+
+            // Draw lines for each commander
+            commanders.forEach((commander) => {
+                ctx.strokeStyle = commander.color;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+
+                commander.scores.forEach((score, i) => {
+                    const x = 100 + (i * 250);
+                    const y = 350 - ((score - 900) * 1.5);
+
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+
+                    // Draw point
+                    ctx.fillStyle = commander.color;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
+                ctx.stroke();
+
+                // Label
+                ctx.fillStyle = commander.color;
+                ctx.font = 'bold 16px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText(commander.name, 1110, 350 - ((commander.scores[4] - 900) * 1.5));
+            });
+
+            // Title
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Elo Ratings Over Time - 1st Infantry Division', 600, 30);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') nextSlide();
+            if (e.key === 'ArrowLeft') previousSlide();
+            if (e.key === 'Home') showSlide(0);
+            if (e.key === 'End') showSlide(totalSlides - 1);
+        });
+
+        updateScale();
+        showSlide(0);
+        window.addEventListener('resize', updateScale);
+    </script>
+</body>
+</html>
