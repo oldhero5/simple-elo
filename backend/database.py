@@ -295,12 +295,13 @@ class Database:
                 return Personnel(**person)
 
             values.append(personnel_id)
+            # UPDATE ... RETURNING raises a false duplicate-key error in DuckDB 0.9.
+            conn.execute(
+                f"UPDATE personnel SET {', '.join(updates)} WHERE id = ?", values
+            )
             cursor = conn.execute(
-                f"""
-                UPDATE personnel SET {', '.join(updates)}
-                WHERE id = ? RETURNING {PERSONNEL_COLUMNS}
-                """,
-                values,
+                f"SELECT {PERSONNEL_COLUMNS} FROM personnel WHERE id = ?",
+                (personnel_id,),
             )
             return Personnel(**dict_rows(cursor)[0])
 

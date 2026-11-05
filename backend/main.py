@@ -92,8 +92,6 @@ async def update_personnel(personnel_id: int, personnel_data: PersonnelUpdate):
 @app.delete("/api/personnel/{personnel_id}")
 async def delete_personnel(personnel_id: int):
     """Soft delete personnel (set inactive)"""
-    # Use the existing update_personnel method but don't rely on its return value
-    # since we know the operation works but the method has return issues
     try:
         # Check if personnel exists first
         all_personnel = db.get_all_personnel(active_only=False)
