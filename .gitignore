@@ -114,3 +114,7 @@ CLAUDE.md
 .cursor/
 .aider*
 .copilot*
+
+# Next.js generated
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo

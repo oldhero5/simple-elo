@@ -1,46 +1,31 @@
 import type { Metadata } from 'next'
-import { Inter, JetBrains_Mono } from 'next/font/google'
+import { GeistSans } from 'geist/font/sans'
+import { GeistMono } from 'geist/font/mono'
 import './globals.css'
-import Navigation from '@/components/Navigation'
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-})
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-mono',
-  display: 'swap',
-})
+import SiteHeader from '@/components/SiteHeader'
 
 export const metadata: Metadata = {
-  title: 'ELO Performance Rating System',
-  description: 'Military-grade performance evaluation using ELO algorithms',
+  title: 'Simple Elo',
+  description: 'Pairwise comparisons of officers with a running Elo rating, cut by grade band, unit and time.',
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans bg-military-black text-military-light min-h-screen`}>
-        <div className="min-h-screen flex flex-col">
-          <Navigation />
-          <main className="flex-1 container mx-auto px-4 py-8">
-            {children}
-          </main>
-          <footer className="border-t border-military-gray bg-military-dark">
-            <div className="container mx-auto px-4 py-4">
-              <p className="text-center text-military-muted text-sm font-mono">
-                ELO Performance Rating System v1.0 | Military-Grade Evaluation Platform
-              </p>
-            </div>
-          </footer>
-        </div>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className="min-h-screen font-sans">
+        <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:bg-white focus:px-3 focus:py-2 focus:text-black">
+          Skip to content
+        </a>
+        <SiteHeader />
+        <main id="main" className="mx-auto w-full max-w-[1440px] px-4 pb-24 pt-8 sm:px-8">
+          {children}
+        </main>
+        <footer className="border-t border-line">
+          <div className="mx-auto flex max-w-[1440px] flex-wrap justify-between gap-2 px-4 py-6 sm:px-8">
+            <span className="tele">Simple Elo prototype</span>
+            <span className="tele">Pairwise comparison record, cut by band, unit and time</span>
+          </div>
+        </footer>
       </body>
     </html>
   )

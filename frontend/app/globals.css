@@ -2,45 +2,84 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+:root {
+  --ink: #000;
+  --panel: #0f0f0f;
+  --signal: #7aebff;
+  --alert: #ff6666;
+  --amber: #ffcb47;
+  --line: rgba(255, 255, 255, 0.14);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
 
 @layer base {
-  * {
-    @apply border-military-gray;
-  }
-
-  html {
-    color-scheme: dark;
-  }
-
+  html { color-scheme: dark; background: #000; }
   body {
-    @apply bg-military-black text-military-light font-sans antialiased;
+    @apply bg-ink text-t1 font-sans antialiased;
+    overflow-x: hidden;
+    font-feature-settings: 'ss01', 'cv11';
   }
+  * { border-color: var(--line); }
+  ::selection { background: var(--signal); color: #000; }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  input[type='range'] { accent-color: #7aebff; }
 }
 
 @layer components {
-  .btn-primary {
-    @apply bg-military-green hover:bg-green-600 text-white font-medium px-4 py-2 rounded-lg transition-colors duration-200;
+  .tele {
+    @apply font-mono text-[11px] uppercase tracking-tele text-t3;
   }
+  .tele-strong { @apply font-mono text-[11px] uppercase tracking-tele text-t1; }
+  .display {
+    @apply font-sans font-medium tracking-tightest leading-[0.98];
+  }
+  .panel { @apply border border-line bg-panel; }
+  .rule { @apply border-t border-line; }
+  .pill {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-medium text-black
+      transition-[background,transform] duration-200 hover:bg-signal disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white;
+  }
+  .pill-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line-strong px-5 py-2.5 text-sm text-t1
+      transition-colors duration-200 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .field {
+    @apply w-full rounded-none border border-line-strong bg-black px-3 py-2 text-sm text-t1 placeholder:text-t3
+      transition-colors hover:border-white/50 disabled:opacity-50;
+  }
+  .seg { @apply inline-flex border border-line-strong; }
+  .seg button {
+    @apply px-3 py-2 font-mono text-[11px] uppercase tracking-tele text-t2 transition-colors hover:bg-white/10;
+  }
+  .seg button[aria-pressed='true'] { @apply bg-white text-black; }
+  .th { @apply py-2 pr-4 text-left font-mono text-[11px] font-normal uppercase tracking-tele text-t3; }
+  .td { @apply py-2.5 pr-4 text-sm; }
+  .num { @apply text-right font-mono tabular-nums; }
+}
 
-  .btn-secondary {
-    @apply bg-military-gray hover:bg-gray-600 text-military-light font-medium px-4 py-2 rounded-lg transition-colors duration-200;
-  }
+.grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 60% 40%, #000 20%, transparent 85%);
+  mask-image: radial-gradient(ellipse 80% 70% at 60% 40%, #000 20%, transparent 85%);
+}
+.grid-warp { transform: perspective(900px) rotateX(58deg) scale(2.2); transform-origin: 50% 100%; }
 
-  .btn-danger {
-    @apply bg-military-red hover:bg-red-600 text-white font-medium px-4 py-2 rounded-lg transition-colors duration-200;
-  }
+@keyframes boot {
+  from { opacity: 0; transform: translateY(8px); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+.boot { opacity: 0; animation: boot 0.7s var(--ease) forwards; animation-delay: calc(var(--i, 0) * 70ms); }
+@keyframes scan { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.scanbar::after {
+  content: ''; position: absolute; inset: 0; width: 40%; background: var(--signal); opacity: .8;
+  animation: scan 1.1s var(--ease) infinite;
+}
 
-  .card {
-    @apply bg-military-dark border border-military-gray rounded-lg p-6 shadow-lg;
-  }
-
-  .input-field {
-    @apply bg-military-dark border border-military-gray text-military-light px-3 py-2 rounded-lg focus:border-military-green focus:outline-none transition-colors duration-200;
-  }
-
-  .table-row {
-    @apply border-b border-military-gray hover:bg-military-dark/50 transition-colors duration-200;
-  }
+@media (prefers-reduced-motion: reduce) {
+  .boot { animation: none; opacity: 1; }
+  .scanbar::after { animation: none; width: 100%; opacity: .4; }
+  * { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
 }
