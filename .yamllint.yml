@@ -1,5 +1,6 @@
-# YAML linting configuration
 extends: default
+
+ignore-from-file: .gitignore
 
 rules:
   line-length:
@@ -8,4 +9,6 @@ rules:
     min-spaces-from-content: 1
   document-start: disable
   truthy:
-    allowed-values: ['true', 'false', 'yes', 'no']
+    allowed-values: ['true', 'false']
+    # GitHub Actions uses the bare key "on", which YAML 1.1 reads as a boolean.
+    check-keys: false

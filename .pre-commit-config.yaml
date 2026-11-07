@@ -1,69 +1,63 @@
-# Pre-commit hooks for security and code quality
+# Install once per clone with `pre-commit install`; check everything with
+# `pre-commit run --all-files`. Frontend checks (npm run lint, typecheck) run
+# in CI and are not hooks here, because they need frontend/node_modules.
 repos:
-  # General hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
       - id: check-yaml
       - id: check-json
       - id: check-toml
-      - id: check-xml
       - id: check-merge-conflict
       - id: check-case-conflict
-      - id: check-symlinks
       - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-added-large-files
       - id: detect-private-key
-      - id: mixed-line-ending
       - id: requirements-txt-fixer
 
-  # Python security and quality
-  - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.5
-    hooks:
-      - id: bandit
-        args: ['-r', 'backend/']
-        exclude: ^backend/tests/
-
-  - repo: https://github.com/psf/black
-    rev: 23.3.0
+  - repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 26.10.1
     hooks:
       - id: black
-        files: ^backend/.*\.py$
+        files: ^backend/
 
   - repo: https://github.com/PyCQA/isort
-    rev: 5.12.0
+    rev: 9.0.2
     hooks:
       - id: isort
-        files: ^backend/.*\.py$
-        args: ["--profile", "black"]
+        files: ^backend/
 
+  # Same version and arguments as the CI backend job.
   - repo: https://github.com/PyCQA/flake8
-    rev: 6.0.0
+    rev: 7.3.0
     hooks:
       - id: flake8
-        files: ^backend/.*\.py$
-        args: ['--max-line-length=88', '--extend-ignore=E203,W503']
+        files: ^backend/
+        args: [--max-line-length=88, "--extend-ignore=E203,W503"]
 
-  # - repo: https://github.com/pre-commit/mirrors-mypy
-  #   rev: v1.3.0
-  #   hooks:
-  #     - id: mypy
-  #       files: ^backend/.*\.py$
-  #       additional_dependencies: [types-all]
-  #       args: [--ignore-missing-imports]
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: [-c, backend/pyproject.toml]
+        additional_dependencies: ["bandit[toml]"]
+        files: ^backend/
+        exclude: ^backend/tests/
 
-  # Secrets detection
   - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.4.0
+    rev: v1.5.0
     hooks:
       - id: detect-secrets
-        args: ['--baseline', '.secrets.baseline']
+        args: [--baseline, .secrets.baseline]
+        exclude: (^|/)(package-lock\.json|uv\.lock)$
 
-  # YAML linting
   - repo: https://github.com/adrienverge/yamllint
-    rev: v1.32.0
+    rev: v1.38.0
     hooks:
       - id: yamllint
         args: [-c=.yamllint.yml]

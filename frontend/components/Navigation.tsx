@@ -2,77 +2,52 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Activity, Users, Target, BarChart3 } from 'lucide-react'
 
-const navItems = [
-  { href: '/', label: 'Dashboard', icon: BarChart3 },
-  { href: '/rate', label: 'Rate Personnel', icon: Target },
-  { href: '/personnel', label: 'Manage Personnel', icon: Users },
-]
+import { cx } from '@/lib/cx'
 
+const NAV_ITEMS = [
+  { href: '/', label: 'Dashboard' },
+  { href: '/rate', label: 'Rate' },
+  { href: '/personnel', label: 'Personnel' },
+] as const
+
+function isActive(pathname: string, href: string): boolean {
+  if (href === '/') return pathname === '/'
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+/** Site header: wordmark on the left, the same text links on every screen size. */
 export default function Navigation() {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? '/'
 
   return (
-    <nav className="bg-military-dark border-b border-military-gray">
-      <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          <div className="flex items-center space-x-2">
-            <Activity className="h-8 w-8 text-military-green" />
-            <h1 className="text-xl font-bold font-mono text-military-light">
-              ELO RATER
-            </h1>
-          </div>
-
-          <div className="hidden md:block">
-            <div className="ml-10 flex items-baseline space-x-4">
-              {navItems.map((item) => {
-                const Icon = item.icon
-                const isActive = pathname === item.href
-
-                return (
+    <header className="border-b border-zinc-800">
+      <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4 sm:px-6">
+        <Link href="/" className="shrink-0 text-sm font-semibold text-zinc-100">
+          Elo Rater
+        </Link>
+        <nav aria-label="Main">
+          <ul className="flex items-center gap-0.5 sm:gap-1">
+            {NAV_ITEMS.map((item) => {
+              const active = isActive(pathname, item.href)
+              return (
+                <li key={item.href}>
                   <Link
-                    key={item.href}
                     href={item.href}
-                    className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 ${
-                      isActive
-                        ? 'bg-military-green text-white'
-                        : 'text-military-muted hover:text-military-light hover:bg-military-gray'
-                    }`}
+                    aria-current={active ? 'page' : undefined}
+                    className={cx(
+                      'inline-flex h-8 items-center rounded-md px-2 text-sm transition-colors duration-150 sm:px-3',
+                      active ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-100'
+                    )}
                   >
-                    <Icon className="h-4 w-4" />
-                    <span>{item.label}</span>
+                    {item.label}
                   </Link>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="md:hidden">
-            <div className="flex space-x-2">
-              {navItems.map((item) => {
-                const Icon = item.icon
-                const isActive = pathname === item.href
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`p-2 rounded-md transition-colors duration-200 ${
-                      isActive
-                        ? 'bg-military-green text-white'
-                        : 'text-military-muted hover:text-military-light hover:bg-military-gray'
-                    }`}
-                    title={item.label}
-                  >
-                    <Icon className="h-5 w-5" />
-                  </Link>
-                )
-              })}
-            </div>
-          </div>
-        </div>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
       </div>
-    </nav>
+    </header>
   )
 }

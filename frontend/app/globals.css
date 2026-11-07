@@ -2,45 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
-
 @layer base {
-  * {
-    @apply border-military-gray;
-  }
-
-  html {
+  :root {
     color-scheme: dark;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
-    @apply bg-military-black text-military-light font-sans antialiased;
+    @apply bg-zinc-950 text-sm text-zinc-100 antialiased;
+  }
+
+  ::selection {
+    @apply bg-zinc-700 text-zinc-50;
+  }
+
+  /* One focus style for every focusable element. Do not add outline-none. */
+  :focus-visible {
+    outline: 2px solid theme('colors.zinc.300');
+    outline-offset: 2px;
+  }
+
+  /* Headings that receive focus from script (tabindex=-1) so screen readers
+     announce a new screen are not controls, so they get no ring. */
+  [tabindex='-1']:focus-visible {
+    outline: none;
   }
 }
 
-@layer components {
-  .btn-primary {
-    @apply bg-military-green hover:bg-green-600 text-white font-medium px-4 py-2 rounded-lg transition-colors duration-200;
-  }
-
-  .btn-secondary {
-    @apply bg-military-gray hover:bg-gray-600 text-military-light font-medium px-4 py-2 rounded-lg transition-colors duration-200;
-  }
-
-  .btn-danger {
-    @apply bg-military-red hover:bg-red-600 text-white font-medium px-4 py-2 rounded-lg transition-colors duration-200;
-  }
-
-  .card {
-    @apply bg-military-dark border border-military-gray rounded-lg p-6 shadow-lg;
-  }
-
-  .input-field {
-    @apply bg-military-dark border border-military-gray text-military-light px-3 py-2 rounded-lg focus:border-military-green focus:outline-none transition-colors duration-200;
-  }
-
-  .table-row {
-    @apply border-b border-military-gray hover:bg-military-dark/50 transition-colors duration-200;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

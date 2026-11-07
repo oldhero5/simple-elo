@@ -1,46 +1,48 @@
-import type { Metadata } from 'next'
-import { Inter, JetBrains_Mono } from 'next/font/google'
-import './globals.css'
+import type { Metadata, Viewport } from 'next'
+import type { ReactNode } from 'react'
+
 import Navigation from '@/components/Navigation'
 
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-})
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-mono',
-  display: 'swap',
-})
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'ELO Performance Rating System',
-  description: 'Military-grade performance evaluation using ELO algorithms',
+  title: {
+    default: 'Elo Rater',
+    template: '%s | Elo Rater',
+  },
+  description: 'Pairwise Elo ratings for a team.',
+  applicationName: 'Elo Rater',
+  appleWebApp: {
+    capable: true,
+    title: 'Elo Rater',
+    statusBarStyle: 'black',
+  },
+  formatDetection: {
+    telephone: false,
+  },
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#09090b',
+  colorScheme: 'dark',
+}
+
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans bg-military-black text-military-light min-h-screen`}>
-        <div className="min-h-screen flex flex-col">
-          <Navigation />
-          <main className="flex-1 container mx-auto px-4 py-8">
-            {children}
-          </main>
-          <footer className="border-t border-military-gray bg-military-dark">
-            <div className="container mx-auto px-4 py-4">
-              <p className="text-center text-military-muted text-sm font-mono">
-                ELO Performance Rating System v1.0 | Military-Grade Evaluation Platform
-              </p>
-            </div>
-          </footer>
-        </div>
+      <body className="flex min-h-dvh flex-col">
+        <a
+          href="#main"
+          className="sr-only rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-10"
+        >
+          Skip to content
+        </a>
+        <Navigation />
+        <main id="main" className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+          {children}
+        </main>
       </body>
     </html>
   )
