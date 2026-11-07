@@ -103,7 +103,7 @@ export default function DashboardPage() {
             <Standings people={leaderboard} />
           </Section>
           {showRecent ? (
-            <Section title="Recent ratings" className="min-w-0 lg:col-span-2">
+            <Section title="Recent votes" className="min-w-0 lg:col-span-2">
               <RecentRatings ratings={ratings} />
             </Section>
           ) : null}

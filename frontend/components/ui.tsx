@@ -2,7 +2,7 @@
  * Shared UI primitives. Build pages from these instead of ad hoc class strings
  * so every page looks and behaves the same.
  *
- * Design rules (see the spec): dark zinc UI, no shadows, no icons in text
+ * Design rules: dark zinc UI, no shadows, no icons in text
  * buttons, sentence case, numbers in `tabular-nums`, motion limited to 150ms
  * color transitions. Focus rings come from the global :focus-visible rule in
  * app/globals.css, so do not add `outline-none` anywhere.
@@ -21,7 +21,7 @@
  * - Button: variants primary | secondary | ghost | danger, sizes sm | md | lg
  *   (lg is a 44px touch target). `loading` disables it and sets aria-busy.
  *   Defaults to type="button"; pass type="submit" inside forms.
- * - LinkButton: a Next <Link> that looks like a Button. TextLink: inline link.
+ * - LinkButton: a Next <Link> that looks like a Button.
  * - SegmentedControl: a small set of mutually exclusive buttons (aria-pressed).
  * - InlineConfirm: "Deactivate? Yes / Cancel" in place of the original button.
  * - Field, Input, Select, RankSelect: labelled form controls.
@@ -30,7 +30,7 @@
  * - Alert (tone error | info) and ErrorAlert (message plus "Try again").
  * - LiveRegion: render it from the start and change its children; screen
  *   readers announce the change (rating results, form errors).
- * - Loading, Skeleton, ProgressBar, Delta, Badge, Kbd.
+ * - Skeleton, ProgressBar, Delta, Badge, Kbd.
  *
  * Most primitives forward extra props (id, aria-*, onClick) to their root
  * element. `className` is appended, but it cannot override a property the
@@ -151,19 +151,6 @@ export function LinkButton({
   ...props
 }: LinkButtonProps) {
   return <Link className={buttonClasses({ variant, size, className })} {...props} />
-}
-
-/** An inline text link, e.g. "Add people" inside an empty state. */
-export function TextLink({ className, ...props }: ComponentPropsWithoutRef<typeof Link>) {
-  return (
-    <Link
-      className={cx(
-        'font-medium text-zinc-100 underline decoration-zinc-600 underline-offset-4 transition-colors duration-150 hover:decoration-zinc-300',
-        className
-      )}
-      {...props}
-    />
-  )
 }
 
 // Layout
@@ -450,21 +437,6 @@ export function LiveRegion({ className, children, ...props }: LiveRegionProps) {
   )
 }
 
-/** A short muted loading line for small areas. Prefer Skeleton for page content. */
-export function Loading({
-  children = 'Loading...',
-  className,
-}: {
-  children?: ReactNode
-  className?: string
-}) {
-  return (
-    <p role="status" className={cx('text-sm text-zinc-400', className)}>
-      {children}
-    </p>
-  )
-}
-
 /**
  * A neutral placeholder block. Size it with className (e.g. "h-4 w-32") to
  * match the content it stands in for. Wrap a group of skeletons in an element
@@ -557,7 +529,7 @@ export function SegmentedControl<T extends string>({
 export interface EmptyStateProps {
   /** One sentence. */
   children: ReactNode
-  /** Optional single action, e.g. a LinkButton or TextLink. */
+  /** Optional single action, e.g. a LinkButton. */
   action?: ReactNode
   /** "center" for fixed-height placeholders such as an empty chart. Default "start". */
   align?: 'start' | 'center'

@@ -23,12 +23,12 @@ import { useApi } from '@/lib/useApi'
 
 const VIEW_OPTIONS: ReadonlyArray<SegmentedOption<ChartView>> = [
   { value: 'rounds', label: 'By round' },
-  { value: 'ratings', label: 'By rating' },
+  { value: 'ratings', label: 'By vote' },
 ]
 
 const EMPTY_MESSAGES: Record<ChartView, string> = {
-  rounds: 'Ratings by round show up here once a round is complete.',
-  ratings: 'No ratings for the people on the roster yet.',
+  rounds: 'Rating history by round shows up here once a round is complete.',
+  ratings: 'No votes for the people on the roster yet.',
 }
 
 function ChartSkeleton() {

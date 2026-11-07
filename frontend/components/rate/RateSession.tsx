@@ -92,6 +92,8 @@ async function execute(command: Command): Promise<Outcome> {
   }
 }
 
+const SETTLE_MS = 350
+
 const NOT_DONE: Record<Command['type'], string> = {
   vote: 'Not recorded.',
   skip: 'Not skipped.',
@@ -128,6 +130,8 @@ export function RateSession() {
   const [lastCommand, setLastCommand] = useState<Command | null>(null)
   const [confirming, setConfirming] = useState(false)
 
+  const titleRef = useRef<HTMLSpanElement>(null)
+
   const announce = useCallback((text: string) => {
     setMessage((previous) => ({ id: previous.id + 1, text }))
   }, [])
@@ -141,7 +145,11 @@ export function RateSession() {
           outcome = await execute(command)
         } catch (error) {
           if (!isStaleStateError(error)) throw error
-          outcome = { text: notDone(NOT_DONE[command.type], error.message) }
+          outcome =
+            command.type === 'vote' && error.status === 409 && /already rated/i.test(error.message)
+              ? // Also what a retry gets when the first response was lost but the vote landed.
+                { text: 'That pair is already rated. Showing the next pair.' }
+              : { text: notDone(NOT_DONE[command.type], error.message) }
         }
         if (outcome.finishedRoundId !== undefined) {
           finishedRoundRef.current = outcome.finishedRoundId
@@ -149,6 +157,10 @@ export function RateSession() {
         announce(outcome.text)
         // Still inside the action, so the controls stay disabled until the next pair is shown.
         await reload()
+        if (command.type === 'start') {
+          // The confirm's Yes button is gone; put focus on the new round's heading.
+          requestAnimationFrame(() => titleRef.current?.focus())
+        }
       } finally {
         if (command.type === 'start') setConfirming(false)
       }
@@ -167,7 +179,6 @@ export function RateSession() {
   // When the view switches (last vote of a round, or a new round started), the
   // focused control is removed. Move focus to the new heading instead of
   // leaving it on the document body.
-  const titleRef = useRef<HTMLSpanElement>(null)
   const previousKind = useRef(kind)
   useEffect(() => {
     const before = previousKind.current
@@ -186,6 +197,14 @@ export function RateSession() {
     }
   }, [confirming])
 
+  // A tap or click that lands right as the next pair appears was aimed at the
+  // previous pair, so ignore input for a moment after each new pair.
+  const shownAt = useRef(0)
+  const shownMatchupId = data?.kind === 'ready' ? data.next.matchup.id : null
+  useEffect(() => {
+    shownAt.current = performance.now()
+  }, [shownMatchupId])
+
   const busy = action.pending || view.loading
   const stale = view.error !== null && data !== undefined
   const pendingChoice = action.pending && lastCommand ? choiceOf(lastCommand) : null
@@ -198,6 +217,7 @@ export function RateSession() {
 
   function choose(next: NextMatchupReady, choice: Choice) {
     if (busy || stale) return
+    if (performance.now() - shownAt.current < SETTLE_MS) return
     if (choice !== 'skip') {
       runCommand({ type: 'vote', next, choice })
     } else if (next.progress.remaining <= 1) {
@@ -300,7 +320,7 @@ export function RateSession() {
               {' · '}
             </>
           ) : null}
-          {plural(finished.statistics.total_ratings, 'rating', 'ratings')}
+          {plural(finished.statistics.total_ratings, 'vote', 'votes')}
         </>
       )
     } else if (!canStart) {

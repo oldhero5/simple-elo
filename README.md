@@ -28,7 +28,7 @@ Open http://localhost:3000, add at least two people on the Personnel page, then 
 | --- | --- |
 | Follow the logs | `docker compose logs -f` |
 | Stop (data is kept in `./data`) | `docker compose down` |
-| Update | `git pull && docker compose up -d --build` |
+| Update | `git pull && docker compose build --pull && docker compose up -d` (with the sidecar, run `docker compose --profile tailscale pull tailscale` first and add `--profile tailscale` to `up`) |
 
 Only the web UI is published, on port 3000. The backend is reachable only from the frontend container, which forwards `/api` requests to it.
 
@@ -54,9 +54,9 @@ Pick one of these:
    docker compose --profile tailscale up -d --build
    ```
 
-   Then open `https://elo.<tailnet>.ts.net` (the name comes from `TS_HOSTNAME`). If you leave `TS_AUTHKEY` empty, `docker compose logs tailscale` prints a login URL instead. The sidecar's serve config in `tailscale/serve.json` sets `AllowFunnel` to false. HTTPS certificates must be turned on for the tailnet, as in option 2.
+   Then open `https://elo.<tailnet>.ts.net` (the name comes from `TS_HOSTNAME`). If you leave `TS_AUTHKEY` empty, `docker compose logs -f tailscale` prints a login URL instead. Open it within a minute: the sidecar restarts after about 60 seconds without a login and prints a new URL, so an auth key is easier. The sidecar's serve config in `tailscale/serve.json` sets `AllowFunnel` to false. HTTPS certificates must be turned on for the tailnet, as in option 2.
 
-Tip: by default port 3000 is published on every interface, so devices on your LAN can open the app too. To limit that, set `ELO_BIND` in `.env` (copy it from `.env.example` first) and run `docker compose up -d` again:
+Tip: by default port 3000 is published on every interface of the host, so devices on your LAN (and, on the host's own tailnet address, the tailnet) can open the app too, even when you also use the sidecar. To limit that, set `ELO_BIND` in `.env` (copy it from `.env.example` first) and run `docker compose up -d` again:
 
 - `ELO_BIND=<output of tailscale ip -4>` keeps the app off the LAN but reachable over the tailnet (option 1). That address must exist when the container starts, so if Docker comes up before Tailscale after a reboot, run `docker compose up -d` again.
 - `ELO_BIND=127.0.0.1` makes the HTTPS address the only way in from other devices (options 2 and 3).
@@ -85,7 +85,7 @@ npm install
 npm run dev
 ```
 
-The browser only talks to the frontend. Its route handler at `frontend/app/api/[...path]/route.ts` forwards every `/api/...` request to `API_URL` (default `http://localhost:8000`), read at request time. If the backend is not running, `/api` calls return 502 with `{"detail": "Backend unavailable"}`. `next dev` listens on all interfaces, so `http://<host>:3000` also works from a phone on the tailnet while you develop.
+The browser only talks to the frontend. Its route handler at `frontend/app/api/[...path]/route.ts` forwards every `/api/...` request to `API_URL` (default `http://localhost:8000`), read at request time. If the backend is not running, `/api` calls return 502 with `{"detail": "Backend unavailable"}`. `next dev` listens on all interfaces, but Next.js 16 only serves its dev scripts to the host it runs on. To use dev mode from a phone, start it with the names you open it on, for example `ALLOWED_DEV_ORIGINS='*.ts.net,100.101.102.103' npm run dev`. For a quick check from the phone, the Docker stack is simpler.
 
 The local backend uses `data/elo_ratings.db` at the repo root, the same file as the Docker stack. Do not run both against it at once. After the Docker stack has run, `data/` belongs to uid 10001, so give the local backend its own file instead, for example `DATABASE_PATH=/tmp/elo-dev.db uvicorn main:app --reload`.
 
@@ -106,7 +106,7 @@ CI (`.github/workflows/ci.yml`) runs the backend and frontend checks above on pu
 
 - **Rounds.** Starting a round pairs every active person with every other active person once, so 6 people make 15 matchups. The order of the pairs is shuffled, and which person appears on the left is random for each pair, so the top-rated person is not always shown first.
 - **Voting.** For each pair, pick the left person, the right person, or Draw. Skip moves the pair to the end of the round's queue so it comes back later. On a phone, tap the names; on a keyboard, use Left arrow or 1, Right arrow or 2, D for draw and S for skip.
-- **Hidden ratings.** The Rate page shows only rank and name by default, so current ratings do not anchor the choice. The "Show ratings" toggle (remembered in that browser) reveals each person's rating, expected win chance and the change if picked. After every vote a result line shows the actual changes, for example "CPT Diaz beat SPC Chen. Diaz +16, Chen -16."
+- **Hidden ratings.** The Rate page shows only rank and name by default, so current ratings do not anchor the choice. The "Show ratings" toggle (remembered in that browser) reveals each person's rating, expected score and the change if picked. After every vote a result line shows the actual changes, for example "CPT Diaz beat SPC Chen. Diaz +16, Chen -16."
 - **Elo.** Everyone starts at 1000 (the API accepts an `initial_elo` from 100 to 3000). K is 32, and the update is zero-sum: whatever one person gains, the other loses, so votes never change the sum of all ratings. The math is in `backend/elo.py`:
 
   ```text
@@ -144,7 +144,7 @@ Interactive docs are at `/api/docs` and the OpenAPI document is at `/api/openapi
 | GET | `/api/elo-progression/by-rounds` | Active people's ratings at their first round and after each completed round |
 | GET | `/api/elo-progression/by-ratings` | Active people's ratings after each vote they were in |
 
-Errors return `{"detail": "<message>"}`; 422 responses also carry an `errors` list, and unexpected failures return a generic 500 message. Timestamps are UTC with a `Z` suffix.
+Errors return `{"detail": "<message>"}`. A 422 from request validation also carries pydantic's `errors` list (a 422 for a `winner_id` that is not in the matchup has only `detail`), and unexpected failures return a generic 500 message. Timestamps are UTC with a `Z` suffix.
 
 ## Configuration
 
@@ -158,6 +158,7 @@ All settings are optional.
 | `TS_HOSTNAME` | compose (`.env`), sidecar | `elo` | Machine name on the tailnet |
 | `DATABASE_PATH` | backend | `<repo>/data/elo_ratings.db` | DuckDB file; compose sets `/app/data/elo_ratings.db`. The old name `DATABASE_URL` is still read if `DATABASE_PATH` is unset |
 | `API_URL` | frontend server | `http://localhost:8000` | Backend address for the `/api` proxy; compose sets `http://backend:8000` |
+| `ALLOWED_DEV_ORIGINS` | `npm run dev` only | empty | Comma-separated hosts (wildcards allowed) that may load dev mode, for example `*.ts.net` |
 | `CORS_ORIGINS` | backend | unset (CORS off) | Comma-separated origins allowed to call the backend directly from a browser; not needed when you use the frontend |
 | `LOG_LEVEL` | backend | `INFO` | Python logging level |
 
@@ -175,7 +176,16 @@ cp data/elo_ratings.db elo_ratings-$(date +%F).db
 docker compose start
 ```
 
-If a `data/elo_ratings.db.wal` file is present, copy it with the database. To restore, stop the stack, copy the backup over `data/elo_ratings.db` and start it again.
+A clean stop writes everything into `elo_ratings.db`, so there is normally no `data/elo_ratings.db.wal` afterwards; if one is there (the server was killed), copy it too. The backend owns `data/` (uid 10001), so restoring needs `sudo`. Remove any leftover log file, or DuckDB would replay it on top of the backup:
+
+```bash
+docker compose stop
+sudo rm -f data/elo_ratings.db.wal
+sudo cp elo_ratings-2026-11-07.db data/elo_ratings.db
+docker compose start
+```
+
+The backend gives the restored file back to its own user when it starts.
 
 ## Project layout
 

@@ -22,13 +22,15 @@ Run it on a network where everyone who can reach it is trusted to rate, such as 
 - **SQL.** Every value is passed to DuckDB as a bound parameter. The only SQL built from strings splices in constant column lists and `?` placeholders.
 - **Input validation.** Request bodies are pydantic models: names are 1 to 80 characters and ranks 1 to 12 after trimming, `initial_elo` is an integer from 100 to 3000, and a vote's `winner_id` must be one of the two people in that matchup (or null for a draw). Each multi-step write runs in one transaction and rolls back on error.
 - **Error responses.** Clients get short messages such as "Person not found". Unexpected errors return a generic "Internal server error", and the traceback goes only to the server log.
+- **Cross-site requests.** The `/api` proxy refuses POST, PATCH, PUT and DELETE requests that a browser sends from another site (checked with `Sec-Fetch-Site`, or `Origin` against `Host` over plain HTTP), so a web page someone opens while on the tailnet cannot end a round or edit the roster. Request bodies over 64 KB are refused. Pages send `X-Frame-Options: DENY` and `frame-ancestors 'none'`, so they cannot be framed for clickjacking.
 - **Network.** The backend container is not published to the host; only the frontend's port is. The browser talks to the frontend's own origin, which forwards `/api` to the backend, so CORS is off unless `CORS_ORIGINS` is set.
 - **Containers.** The backend entrypoint starts as root only to give `./data` to the `app` user (uid 10001), then switches to that user with `setpriv` before starting uvicorn. The frontend image runs as the `node` user. The backend image has no compiler, and both images use `.dockerignore` files so local virtualenvs, `node_modules`, databases and `.env` files are not copied in.
-- **Pinned dependencies.** Backend packages are pinned to exact versions in `backend/requirements.txt`. The frontend installs exactly what `frontend/package-lock.json` lists (`npm ci` in the Docker build and in CI). Base images (`python:3.12-slim`, `node:22-alpine`, `tailscale/tailscale:stable`) are tags, not digests; `docker compose build --pull` picks up their updates.
+- **Pinned dependencies.** The backend's direct dependencies (DuckDB, FastAPI, pydantic, uvicorn) are pinned to exact versions in `backend/requirements.txt`; their own dependencies, such as Starlette, resolve when the image is built. The frontend installs exactly what `frontend/package-lock.json` lists (`npm ci` in the Docker build and in CI). Images (`python:3.12-slim`, `node:22-alpine`, `tailscale/tailscale:stable`) are tags, not digests; `docker compose build --pull` refreshes the two base images and `docker compose --profile tailscale pull tailscale` refreshes the sidecar.
 - **Pre-commit hooks.** bandit checks the backend code and detect-secrets checks every file except the two lockfiles against `.secrets.baseline`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Known gaps
 
+- No host allowlist. A DNS rebinding attack could still make a hostile page same-origin with the app. Browsers' private network protections make this hard against tailnet addresses, and Tailscale ACLs limit who can reach the host at all.
 - No dependency vulnerability scanning runs automatically. You can run these by hand:
 
   ```bash

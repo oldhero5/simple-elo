@@ -44,11 +44,6 @@ export const RANK_GROUPS: ReadonlyArray<{ label: RankGroup; ranks: readonly Rank
 /** Preselected rank for new people. */
 export const DEFAULT_RANK = 'SPC'
 
-/** Full title for a rank code, or undefined when the code is not in RANKS. */
-export function rankTitle(code: string): string | undefined {
-  return RANKS.find((rank) => rank.code === code)?.title
-}
-
 export function isKnownRank(code: string): boolean {
   return RANKS.some((rank) => rank.code === code)
 }

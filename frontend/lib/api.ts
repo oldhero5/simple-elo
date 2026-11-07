@@ -10,7 +10,6 @@
  * the user (the backend's `detail` when it sent one).
  */
 import type {
-  Health,
   LeaderboardEntry,
   NextMatchup,
   Personnel,
@@ -172,10 +171,6 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
 // Health
 
-export function getHealth(opts: CallOptions = {}): Promise<Health> {
-  return request<Health>('/health', opts)
-}
-
 // Personnel
 
 /** Sorted by current rating, highest first. Pass `activeOnly: false` to include inactive people. */
@@ -191,18 +186,9 @@ export function createPersonnel(body: PersonnelCreate): Promise<Personnel> {
   return request<Personnel>('/personnel', { method: 'POST', body })
 }
 
-export function getPersonnel(id: number, opts: CallOptions = {}): Promise<Personnel> {
-  return request<Personnel>(`/personnel/${id}`, opts)
-}
-
 /** Partial update. `{ active: false }` deactivates, `{ active: true }` reactivates. */
 export function updatePersonnel(id: number, body: PersonnelUpdate): Promise<Personnel> {
   return request<Personnel>(`/personnel/${id}`, { method: 'PATCH', body })
-}
-
-/** Soft delete; same effect as `updatePersonnel(id, { active: false })`. */
-export function deactivatePersonnel(id: number): Promise<void> {
-  return request<void>(`/personnel/${id}`, { method: 'DELETE' })
 }
 
 // Reports

@@ -20,7 +20,7 @@ export interface StatStripProps {
   leaderboard: readonly LeaderboardEntry[]
 }
 
-/** People, ratings, current round and leader, as one divided <dl>. */
+/** People, votes, current round and leader, as one divided <dl>. */
 export function StatStrip({ stats, leaderboard }: StatStripProps) {
   const round = stats.current_round
   // Before the first vote everyone is still on their starting rating, so
@@ -30,7 +30,7 @@ export function StatStrip({ stats, leaderboard }: StatStripProps) {
   return (
     <StatList columns={4}>
       <Stat label="People" value={formatCount(stats.total_personnel)} />
-      <Stat label="Ratings" value={formatCount(stats.total_ratings)} />
+      <Stat label="Votes" value={formatCount(stats.total_ratings)} />
       <Stat
         label="Current round"
         value={

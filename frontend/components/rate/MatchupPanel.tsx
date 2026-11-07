@@ -1,4 +1,4 @@
-import { type ReactNode, useId } from 'react'
+import { type KeyboardEvent, type ReactNode, useId } from 'react'
 
 import { type Choice, useRateShortcuts } from '@/components/rate/useRateShortcuts'
 import { Button, Delta, Kbd } from '@/components/ui'
@@ -29,6 +29,12 @@ interface ChoiceButtonProps {
   onClick: () => void
 }
 
+// Holding Enter on a focused button repeats its click, which would vote on
+// every pair that loads into it. Only the first press counts.
+function ignoreKeyRepeat(event: KeyboardEvent<HTMLButtonElement>): void {
+  if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault()
+}
+
 // A plain <button> rather than Button: Button has a fixed height and does not
 // wrap, and these need to grow for long names.
 function ChoiceButton({
@@ -44,6 +50,7 @@ function ChoiceButton({
     <button
       type="button"
       onClick={onClick}
+      onKeyDown={ignoreKeyRepeat}
       // aria-disabled instead of disabled keeps keyboard focus on the button
       // while the next pair loads into it.
       aria-disabled={state === 'dimmed' || undefined}
@@ -147,6 +154,7 @@ export function MatchupPanel({
             size="lg"
             className="w-full"
             aria-keyshortcuts="D"
+            onKeyDown={ignoreKeyRepeat}
             aria-disabled={stateOf('draw') === 'dimmed' || undefined}
             onClick={() => onChoose('draw')}
           >
@@ -156,6 +164,7 @@ export function MatchupPanel({
             size="lg"
             className="w-full"
             aria-keyshortcuts="S"
+            onKeyDown={ignoreKeyRepeat}
             aria-disabled={stateOf('skip') === 'dimmed' || undefined}
             onClick={() => onChoose('skip')}
           >

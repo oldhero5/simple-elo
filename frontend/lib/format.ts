@@ -40,11 +40,6 @@ export function formatProbability(value: number): string {
   return `${Math.round(value * 100)}%`
 }
 
-/** A 0..100 percentage as a whole percent: 41.7 -> "42%". */
-export function formatPercent(value: number): string {
-  return `${Math.round(value)}%`
-}
-
 /** Win-loss-draw record: (3, 1, 0) -> "3-1-0". */
 export function formatRecord(wins: number, losses: number, draws: number): string {
   return `${wins}-${losses}-${draws}`
@@ -64,7 +59,6 @@ const dateTimeFormat = new Intl.DateTimeFormat(undefined, {
   timeStyle: 'short',
 })
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
-const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' })
 
 /**
  * Date and time in the viewer's locale and time zone: "Nov 7, 2026, 2:22 PM".
@@ -79,11 +73,6 @@ export function formatDateTime(value: IsoDateTime | Date): string {
 /** Date only, in the viewer's locale: "Nov 7, 2026". */
 export function formatDate(value: IsoDateTime | Date): string {
   return dateFormat.format(toDate(value))
-}
-
-/** Time only, in the viewer's locale: "2:22 PM". */
-export function formatTime(value: IsoDateTime | Date): string {
-  return timeFormat.format(toDate(value))
 }
 
 const relativeFormat = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })

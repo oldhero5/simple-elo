@@ -51,6 +51,32 @@ const RESPONSE_HEADERS_TO_DROP = new Set([
 
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304])
 
+// Every request body this app sends is a few hundred bytes of JSON.
+const MAX_BODY_BYTES = 64 * 1024
+
+/**
+ * True when a browser sent a state-changing request from another site, for
+ * example a page on the internet that posts to this app while someone on the
+ * tailnet has it open. There is no login, so this is the only thing stopping
+ * such a page from ending a round or editing the roster.
+ */
+function isCrossSite(request: NextRequest): boolean {
+  // Sent by current browsers, but only over HTTPS or to localhost.
+  const site = request.headers.get('sec-fetch-site')
+  if (site) return site !== 'same-origin' && site !== 'none'
+  // Plain http on a tailnet IP: browsers still send Origin on POST, PATCH and DELETE.
+  const origin = request.headers.get('origin')
+  if (origin === null) return false // not a browser (curl, scripts)
+  let originHost: string
+  try {
+    originHost = new URL(origin).host
+  } catch {
+    return true // "null" from sandboxed frames and privacy modes
+  }
+  const hosts = [request.headers.get('host'), request.headers.get('x-forwarded-host')]
+  return !hosts.some((host) => host !== null && host.split(',')[0].trim() === originHost)
+}
+
 type RouteContext = { params: Promise<{ path?: string[] }> }
 
 function backendBase(): string {
@@ -96,7 +122,16 @@ async function proxy(request: NextRequest, { params }: RouteContext): Promise<Re
 
   const method = request.method
   const hasBody = method !== 'GET' && method !== 'HEAD'
+  if (hasBody && isCrossSite(request)) {
+    return json(403, 'Cross-site request blocked')
+  }
+  if (Number(request.headers.get('content-length') ?? 0) > MAX_BODY_BYTES) {
+    return json(413, 'Request body too large')
+  }
   const body = hasBody ? await request.arrayBuffer() : undefined
+  if (body && body.byteLength > MAX_BODY_BYTES) {
+    return json(413, 'Request body too large')
+  }
 
   let upstream: Response
   try {

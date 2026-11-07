@@ -52,7 +52,7 @@ export default function ChartFigure({ model, view }: { model: ChartModel; view: 
     <div>
       <div
         role="img"
-        aria-label={`Line chart of ratings ${byRound ? 'after each completed round' : 'after each rating'} for ${people}.`}
+        aria-label={`Line chart of ratings ${byRound ? 'after each completed round' : 'after each vote'} for ${people}.`}
         className={`${CHART_HEIGHT} tabular-nums`}
       >
         <ResponsiveContainer width="100%" height="100%">

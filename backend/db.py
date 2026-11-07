@@ -59,6 +59,13 @@ class Database:
         self._conn.execute("SET TimeZone = 'UTC'")
         with self.transaction() as conn:
             migrate(conn)
+        # Fold the migration into the database file right away. DuckDB 1.4 and
+        # 1.5 cannot replay an ALTER TABLE ... ADD COLUMN on a table with a
+        # nextval() or CURRENT_TIMESTAMP default from the write-ahead log, so if
+        # the process were killed before its next checkpoint (a crash, power
+        # loss, a container killed without a clean stop) the file would no
+        # longer open. Later writes are plain DML, which replays fine.
+        self._conn.execute("CHECKPOINT")
         logger.info("Opened database at %s", self.path)
 
     def close(self) -> None:
