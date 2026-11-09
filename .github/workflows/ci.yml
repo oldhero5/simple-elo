@@ -22,7 +22,10 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r requirements-dev.txt
+      - run: pip-audit -r requirements-dev.txt
       - run: flake8 --max-line-length=88 --extend-ignore=E203,W503 --exclude=.venv .
+      # tests/test_seed.py skips here: it needs the simulation's E_*.csv
+      # files, which are not in the repo. Seeding is tested locally only.
       - run: python -m pytest tests -q -p no:warnings
 
   frontend:
@@ -44,3 +47,10 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      # Host allowlist, cross-site write and body-size guards against the real
+      # server. No backend is needed: every refusal happens before the proxy.
+      - name: Check request guards
+        run: |
+          npx next start -p 3000 > next.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3000/ && break; sleep 1; done
+          node scripts/check-proxy.mjs || { cat next.log; exit 1; }
