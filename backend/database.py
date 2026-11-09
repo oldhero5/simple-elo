@@ -302,7 +302,8 @@ class Database:
                 return Personnel(**person)
 
             values.append(personnel_id)
-            # UPDATE ... RETURNING raises a false duplicate-key error in DuckDB 0.9.
+            # UPDATE then SELECT rather than UPDATE ... RETURNING, which raised a
+            # false duplicate-key error on DuckDB 0.9. Harmless on 1.x.
             conn.execute(
                 f"UPDATE personnel SET {', '.join(updates)} WHERE id = ?", values
             )

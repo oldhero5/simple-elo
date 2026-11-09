@@ -8,6 +8,9 @@ import main
 from database import Database
 
 
+JSON = {"Content-Type": "application/json"}
+
+
 @pytest.fixture
 def database(tmp_path, monkeypatch):
     fresh = Database(str(tmp_path / "test.db"))
@@ -320,7 +323,7 @@ def test_round_is_budgeted_not_all_pairs(client):
 
 def test_default_round_uses_ten_per_officer_and_twenty_percent(client):
     add_pool(client, n=30, units=("U1", "U2", "U3"))
-    round_ = client.post("/api/rounds/new").json()["round"]
+    round_ = client.post("/api/rounds/new", headers=JSON).json()["round"]
     assert round_["comparisons_per_officer"] == 10
     assert round_["cross_unit_share"] == 0.2
     assert round_["total_matchups"] == 150
@@ -345,7 +348,7 @@ def test_budget_out_of_range_is_rejected(client):
 
 def test_new_round_with_too_few_personnel_is_a_clear_error(client):
     add(client, "Alone")
-    response = client.post("/api/rounds/new")
+    response = client.post("/api/rounds/new", headers=JSON)
     assert response.status_code == 400
 
 
@@ -517,3 +520,73 @@ def test_existing_database_is_migrated_in_place(tmp_path, monkeypatch):
     assert round_["track"] == "performance"
     pair = next_pair(client)
     assert answer(client, pair, pair["person_a"]["id"]).status_code == 200
+
+
+# Request hardening
+def test_unknown_host_is_refused(client):
+    for host, status in (("evil.example", 400), ("127.0.0.1:8000", 200)):
+        assert client.get("/api/meta", headers={"Host": host}).status_code == status
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"Content-Type": "text/plain"},
+        {"Content-Type": "application/x-www-form-urlencoded"},
+    ],
+)
+def test_writes_must_be_json(client, headers):
+    body = '{"name": "X", "rank": "CPT"}'
+    response = client.post("/api/personnel", content=body, headers=headers)
+    assert response.status_code == 415
+    assert client.post("/api/rounds/start-first", headers=headers).status_code == 415
+    assert client.get("/api/personnel").json() == []
+
+
+def test_json_with_charset_is_accepted(client):
+    response = client.post(
+        "/api/personnel",
+        content='{"name": "X", "rank": "CPT"}',
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/api/history?limit=-1",
+        "/api/history?limit=0",
+        "/api/history?limit=501",
+        "/api/personnel?limit=5001",
+        "/api/population?quarter_to=401",
+        "/api/replay?band=tactical&through_quarter=401",
+    ],
+)
+def test_out_of_range_queries_are_422(client, url):
+    assert client.get(url).status_code == 422
+
+
+@pytest.mark.parametrize("initial_elo", [-1, 5001, 99999999999])
+def test_out_of_range_initial_elo_is_422(client, initial_elo):
+    response = client.post(
+        "/api/personnel", json={"name": "X", "rank": "CPT", "initial_elo": initial_elo}
+    )
+    assert response.status_code == 422
+
+
+def test_round_quarter_has_an_upper_bound(client):
+    add_pool(client)
+    response = client.post("/api/rounds/new", json={"quarter": 401})
+    assert response.status_code == 422
+
+
+def test_database_errors_are_not_echoed(client, monkeypatch):
+    def broken(_):
+        raise RuntimeError("Conversion Error: secret INT32 detail")
+
+    monkeypatch.setattr(main.db, "create_personnel", broken)
+    response = client.post("/api/personnel", json={"name": "X", "rank": "CPT"})
+    assert response.status_code == 500
+    assert "INT32" not in response.text

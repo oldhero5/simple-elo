@@ -7,6 +7,8 @@ services:
       - "3000:3000"
     environment:
       - BACKEND_URL=http://backend:8000
+      # Extra hosts the app may be opened on, e.g. a tailnet IP and MagicDNS name.
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
     depends_on:
       - backend
     networks:
@@ -14,8 +16,11 @@ services:
 
   backend:
     build: ./backend
+    # Not published to the network: the frontend proxies /api, and its CSRF,
+    # host and body-size checks only hold if the browser cannot skip it.
+    # Loopback only, for curl from this machine.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data
     environment:

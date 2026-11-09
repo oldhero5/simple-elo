@@ -13,6 +13,9 @@ Outcome = Literal["a_wins", "b_wins", "draw", "cant_judge"]
 
 UNASSIGNED = "UNASSIGNED"
 
+# A quarter number past this is a typo, not a hundred years of records.
+MAX_QUARTER = 400
+
 
 class PersonnelBase(BaseModel):
     name: str
@@ -21,7 +24,7 @@ class PersonnelBase(BaseModel):
 
 
 class PersonnelCreate(PersonnelBase):
-    initial_elo: Optional[int] = 1000
+    initial_elo: Optional[int] = Field(default=1000, ge=0, le=5000)
 
 
 class PersonnelUpdate(BaseModel):
@@ -51,7 +54,7 @@ class RoundConfig(BaseModel):
     track: Track = "performance"
     comparisons_per_officer: int = Field(default=10, ge=1, le=29)
     cross_unit_share: float = Field(default=0.2, ge=0, le=1)
-    quarter: Optional[int] = Field(default=None, ge=1)
+    quarter: Optional[int] = Field(default=None, ge=1, le=MAX_QUARTER)
     band: Optional[Band] = None
     seed: Optional[int] = None
 
