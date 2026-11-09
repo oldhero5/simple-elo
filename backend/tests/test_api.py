@@ -590,3 +590,119 @@ def test_database_errors_are_not_echoed(client, monkeypatch):
     response = client.post("/api/personnel", json={"name": "X", "rank": "CPT"})
     assert response.status_code == 500
     assert "INT32" not in response.text
+
+
+# Input hardening, second review
+def test_initial_elo_cannot_be_null(client):
+    response = client.post(
+        "/api/personnel", json={"name": "X", "rank": "CPT", "initial_elo": None}
+    )
+    assert response.status_code == 422
+    assert add(client, "Y")["initial_elo"] == 1000
+
+
+def test_null_ratings_left_by_older_versions_are_repaired(tmp_path, monkeypatch):
+    path = str(tmp_path / "nulls.db")
+    Database(path)
+    with duckdb.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO personnel (name, rank, unit, band, initial_elo, current_elo,"
+            " current_potential) VALUES ('Null', 'CPT', 'U1', 'tactical',"
+            " NULL, NULL, NULL)"
+        )
+    monkeypatch.setattr(main, "db", Database(path))
+    client = TestClient(main.app)
+    for url in ("/api/leaderboard", "/api/stats", "/api/personnel"):
+        assert client.get(url).status_code == 200, url
+    person = client.get("/api/personnel").json()[0]
+    assert (person["initial_elo"], person["current_elo"]) == (1000, 1000)
+    assert client.delete(f"/api/personnel/{person['id']}").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "url, body",
+    [
+        ("/api/personnel", '{"name": "X", "rank": "CPT", "initial_elo": 1e309}'),
+        ("/api/personnel", '{"name": "X", "rank": "CPT", "initial_elo": NaN}'),
+        ("/api/rounds/new", '{"cross_unit_share": NaN}'),
+        ("/api/rounds/new", '{"cross_unit_share": 1e309}'),
+        ("/api/rounds/new", '{"cross_unit_share": -Infinity}'),
+    ],
+)
+def test_non_finite_numbers_get_a_clean_422(client, url, body):
+    response = client.post(url, content=body, headers=JSON)
+    assert response.status_code == 422
+    for error in response.json()["detail"]:
+        assert set(error) == {"type", "loc", "msg"}
+
+
+@pytest.mark.parametrize("seed", [-1, 2**32])
+def test_seed_is_bounded(client, seed):
+    add_pool(client)
+    url = f"/api/replay?band=tactical&seed={seed}"
+    assert client.get(url).status_code == 422
+    response = client.post("/api/rounds/new", json={"seed": seed})
+    assert response.status_code == 422
+
+
+def test_only_app_errors_reach_the_client(client, monkeypatch):
+    from errors import RatingError
+
+    def library_error(_):
+        raise ValueError("3 validation errors for Personnel errors.pydantic.dev")
+
+    def app_error(_):
+        raise RatingError("Need at least 2 active personnel to create a round")
+
+    monkeypatch.setattr(main.db, "start_new_round", library_error)
+    response = client.post("/api/rounds/new", json={})
+    assert response.status_code == 500
+    assert "pydantic" not in response.text
+    monkeypatch.setattr(main.db, "start_new_round", app_error)
+    response = client.post("/api/rounds/new", json={})
+    assert response.status_code == 400
+    assert response.json()["detail"].startswith("Need at least 2")
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("name", ""),
+        ("name", "   "),
+        ("name", "a" * 101),
+        ("name", "x\x00y"),
+        ("name", "tab\there"),
+        ("rank", "a" * 11),
+        ("unit", "u" * 51),
+        ("unit", ""),
+    ],
+)
+def test_personnel_text_is_checked(client, field, value):
+    body = {"name": "X", "rank": "CPT", "unit": "U1", field: value}
+    assert client.post("/api/personnel", json=body).status_code == 422
+    person = add(client, "Edit me")
+    response = client.put(f"/api/personnel/{person['id']}", json={field: value})
+    assert response.status_code == 422
+
+
+def test_personnel_text_is_trimmed(client):
+    body = {"name": "  Bob  ", "rank": " CPT ", "unit": " U1 "}
+    person = client.post("/api/personnel", json=body).json()
+    assert (person["name"], person["rank"], person["unit"]) == ("Bob", "CPT", "U1")
+
+
+def test_round_name_is_checked(client):
+    add_pool(client)
+    for name in ("", "r" * 121, "bad\x07name"):
+        response = client.post("/api/rounds", json={"round_name": name})
+        assert response.status_code == 422
+
+
+def test_body_less_writes_still_need_json_content_type(client):
+    add_pool(client)
+    assert client.post("/api/rounds/start-first").status_code == 415
+    response = client.post("/api/rounds/start-first", headers=JSON)
+    assert response.status_code == 200
+    person = add(client, "Leaving")
+    # DELETE is exempt: browsers cannot send one cross-site without a preflight.
+    assert client.delete(f"/api/personnel/{person['id']}").status_code == 200

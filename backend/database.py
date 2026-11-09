@@ -12,6 +12,7 @@ import duckdb
 
 from bands import band_for_rank
 from elo import A_WINS, B_WINS, CANT_JUDGE, DRAW, apply_outcome
+from errors import RatingError
 from models import (
     EloHistoryPoint,
     Matchup,
@@ -161,6 +162,11 @@ class Database:
             info = conn.execute(f"PRAGMA table_info('{table}')").fetchall()
             if next(c[2] for c in info if c[1] == column) != "DOUBLE":
                 conn.execute(f"ALTER TABLE {table} ALTER {column} TYPE DOUBLE")
+
+        # initial_elo was nullable and the API once let a null through; one
+        # such row broke every roster and stats read. Give them the default.
+        for column in ("initial_elo", "current_elo", "current_potential"):
+            conn.execute(f"UPDATE personnel SET {column} = 1000 WHERE {column} IS NULL")
 
         unbanded = conn.execute(
             "SELECT DISTINCT rank FROM personnel WHERE band IS NULL"
@@ -410,7 +416,7 @@ class Database:
         """Create a round with budgeted matchups"""
         people = self.get_all_personnel(active_only=True, band=round_data.band)
         if len(people) < 2:
-            raise ValueError("Need at least 2 active personnel to create a round")
+            raise RatingError("Need at least 2 active personnel to create a round")
 
         plans = select_pairs(
             [(p.id, p.band, p.unit) for p in people],
@@ -420,7 +426,7 @@ class Database:
         )
         pairs = [pair for plan in plans for pair in plan.pairs]
         if not pairs:
-            raise ValueError("No band has 2 active personnel to compare")
+            raise RatingError("No band has 2 active personnel to compare")
 
         rating = RATING_COLUMN[round_data.track]
         snapshot = json.dumps(
@@ -648,10 +654,10 @@ class Database:
                 (matchup_id, round_id),
             ).fetchone()
             if not matchup:
-                raise ValueError("Matchup not found in this round")
+                raise RatingError("Matchup not found in this round")
             a_id, b_id, status, track, quarter, dtg = matchup
             if status != "pending":
-                raise ValueError("Matchup has already been answered")
+                raise RatingError("Matchup has already been answered")
 
             column = RATING_COLUMN[track]
             people = dict_rows(
@@ -665,10 +671,10 @@ class Database:
             )
             by_id = {p["id"]: p for p in people}
             if len(by_id) != 2:
-                raise ValueError("Personnel not found")
+                raise RatingError("Personnel not found")
             person_a, person_b = by_id[a_id], by_id[b_id]
             if person_a["band"] != person_b["band"]:
-                raise ValueError("Ratings are kept within band")
+                raise RatingError("Ratings are kept within band")
 
             if cant_judge:
                 outcome = CANT_JUDGE
@@ -679,7 +685,7 @@ class Database:
             elif winner_id == b_id:
                 outcome = B_WINS
             else:
-                raise ValueError("Winner is not in this matchup")
+                raise RatingError("Winner is not in this matchup")
 
             new_a, new_b = apply_outcome(
                 person_a["rating"], person_b["rating"], outcome

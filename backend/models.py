@@ -3,9 +3,17 @@ Pydantic models for the Elo rating system
 """
 
 from datetime import datetime
-from typing import Literal, Optional
+import unicodedata
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 Track = Literal["performance", "potential"]
 Band = Literal["tactical", "operational", "strategic", "unbanded"]
@@ -16,6 +24,36 @@ UNASSIGNED = "UNASSIGNED"
 # A quarter number past this is a typo, not a hundred years of records.
 MAX_QUARTER = 400
 
+# numpy seeds are unsigned; keep them in the range every generator accepts.
+MAX_SEED = 2**32 - 1
+
+
+def _no_control_characters(value: str) -> str:
+    if any(unicodedata.category(c).startswith("C") for c in value):
+        raise ValueError("must not contain control characters")
+    return value
+
+
+def _text(max_length: int):
+    """Trimmed, non-empty, printable text of at most max_length characters."""
+    return Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=max_length),
+        AfterValidator(_no_control_characters),
+    ]
+
+
+Name = _text(100)
+Rank = _text(10)
+Unit = _text(50)
+RoundName = _text(120)
+
+
+class Input(BaseModel):
+    """Base for request bodies: NaN and infinity are not numbers here."""
+
+    model_config = ConfigDict(allow_inf_nan=False)
+
 
 class PersonnelBase(BaseModel):
     name: str
@@ -23,14 +61,17 @@ class PersonnelBase(BaseModel):
     unit: str = UNASSIGNED
 
 
-class PersonnelCreate(PersonnelBase):
-    initial_elo: Optional[int] = Field(default=1000, ge=0, le=5000)
+class PersonnelCreate(Input):
+    name: Name
+    rank: Rank
+    unit: Unit = UNASSIGNED
+    initial_elo: int = Field(default=1000, ge=0, le=5000)
 
 
-class PersonnelUpdate(BaseModel):
-    name: Optional[str] = None
-    rank: Optional[str] = None
-    unit: Optional[str] = None
+class PersonnelUpdate(Input):
+    name: Optional[Name] = None
+    rank: Optional[Rank] = None
+    unit: Optional[Unit] = None
     active: Optional[bool] = None
 
 
@@ -48,7 +89,7 @@ class Personnel(PersonnelBase):
         from_attributes = True
 
 
-class RoundConfig(BaseModel):
+class RoundConfig(Input):
     """How a round's pairs are chosen. Defaults follow the information paper."""
 
     track: Track = "performance"
@@ -56,11 +97,11 @@ class RoundConfig(BaseModel):
     cross_unit_share: float = Field(default=0.2, ge=0, le=1)
     quarter: Optional[int] = Field(default=None, ge=1, le=MAX_QUARTER)
     band: Optional[Band] = None
-    seed: Optional[int] = None
+    seed: Optional[int] = Field(default=None, ge=0, le=MAX_SEED)
 
 
 class RoundCreate(RoundConfig):
-    round_name: str
+    round_name: RoundName
     dtg: Optional[datetime] = None
 
 
@@ -96,7 +137,7 @@ class Matchup(BaseModel):
         from_attributes = True
 
 
-class RatingCreate(BaseModel):
+class RatingCreate(Input):
     round_id: Optional[int] = None
     matchup_id: Optional[int] = None
     ratee_a_id: int
