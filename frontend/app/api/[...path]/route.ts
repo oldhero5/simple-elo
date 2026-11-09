@@ -7,6 +7,8 @@
  * BACKEND_URL at request time, so one built image works in any environment.
  */
 import { type NextRequest } from 'next/server'
+import { MAX_BODY_BYTES, readCapped } from '@/lib/body'
+import { isAllowedHost, isAllowedOrigin, requestHosts } from '@/lib/hosts'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -51,9 +53,6 @@ const RESPONSE_HEADERS_TO_DROP = new Set([
 
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304])
 
-// Every request body this app sends is a few hundred bytes of JSON.
-const MAX_BODY_BYTES = 64 * 1024
-
 /**
  * True when a browser sent a state-changing request from another site, for
  * example a page on the internet that posts to this app while someone on the
@@ -63,18 +62,13 @@ const MAX_BODY_BYTES = 64 * 1024
 function isCrossSite(request: NextRequest): boolean {
   // Sent by current browsers, but only over HTTPS or to localhost.
   const site = request.headers.get('sec-fetch-site')
-  if (site) return site !== 'same-origin' && site !== 'none'
-  // Plain http on a tailnet IP: browsers still send Origin on POST, PATCH and DELETE.
+  if (site && site !== 'same-origin' && site !== 'none') return true
+  // Plain http on a tailnet IP: browsers still send Origin on POST, PATCH and
+  // DELETE. It must name a host on the allowlist, not merely match Host: a
+  // DNS-rebinding page sends matching Origin and Host under its own name.
   const origin = request.headers.get('origin')
   if (origin === null) return false // not a browser (curl, scripts)
-  let originHost: string
-  try {
-    originHost = new URL(origin).host
-  } catch {
-    return true // "null" from sandboxed frames and privacy modes
-  }
-  const hosts = [request.headers.get('host'), request.headers.get('x-forwarded-host')]
-  return !hosts.some((host) => host !== null && host.split(',')[0].trim() === originHost)
+  return !isAllowedOrigin(origin)
 }
 
 type RouteContext = { params: Promise<{ path?: string[] }> }
@@ -120,6 +114,12 @@ async function proxy(request: NextRequest, { params }: RouteContext): Promise<Re
   const path = segments.map(encodeURIComponent).join('/')
   const target = `${backendBase()}/api/${path}${request.nextUrl.search}`
 
+  // proxy.ts makes this check for pages but skips /api (see the note there),
+  // so the API's own check is the one that counts.
+  if (!requestHosts(request.headers).every(isAllowedHost)) {
+    return json(421, 'Unknown host')
+  }
+
   const method = request.method
   const hasBody = method !== 'GET' && method !== 'HEAD'
   if (hasBody && isCrossSite(request)) {
@@ -128,8 +128,8 @@ async function proxy(request: NextRequest, { params }: RouteContext): Promise<Re
   if (Number(request.headers.get('content-length') ?? 0) > MAX_BODY_BYTES) {
     return json(413, 'Request body too large')
   }
-  const body = hasBody ? await request.arrayBuffer() : undefined
-  if (body && body.byteLength > MAX_BODY_BYTES) {
+  const body = hasBody ? await readCapped(request, MAX_BODY_BYTES) : undefined
+  if (body === null) {
     return json(413, 'Request body too large')
   }
 

@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
-// Same origin by default: Next forwards /api to the backend (next.config.js),
-// so the app works from any address that reaches port 3000, Tailscale included.
+// Same origin by default: app/api/[...path]/route.ts forwards /api to the backend,
+// so the app works from any address on ALLOWED_HOSTS that reaches port 3000.
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? ''
 
 export type Track = 'performance' | 'potential'
