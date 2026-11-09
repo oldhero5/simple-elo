@@ -1,9 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Check, HelpCircle, Minus } from 'lucide-react'
-import { Filters, Meta, Personnel, Track, cap, getJson, n0, n1, pct, sendJson, signed, useApi } from '@/lib/api'
+import { Filters, Meta, Personnel, Track, cap, getJson, n0, pct, sendJson, signed, useApi } from '@/lib/api'
 import { ErrorRetry, Loading, PageHead, Section } from '@/components/ui'
 
 interface RoundInfo { id: number; round_name: string; dtg: string; status: string; total_matchups: number; completed_matchups: number; track: Track; quarter: number; band: string | null; design: Design }

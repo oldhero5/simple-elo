@@ -61,7 +61,6 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # Package manager locks
-frontend/package-lock.json
 frontend/yarn.lock
 
 # Database
