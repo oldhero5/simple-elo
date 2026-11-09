@@ -128,9 +128,15 @@ async function proxy(request: NextRequest, { params }: RouteContext): Promise<Re
   if (Number(request.headers.get('content-length') ?? 0) > MAX_BODY_BYTES) {
     return json(413, 'Request body too large')
   }
-  const body = hasBody ? await readCapped(request, MAX_BODY_BYTES) : undefined
-  if (body === null) {
-    return json(413, 'Request body too large')
+  let body: Uint8Array<ArrayBuffer> | undefined
+  if (hasBody) {
+    const read = await readCapped(request, MAX_BODY_BYTES)
+    if (!read.ok) {
+      return read.reason === 'timeout'
+        ? json(408, 'Request body not received in time')
+        : json(413, 'Request body too large')
+    }
+    body = read.body
   }
 
   let upstream: Response

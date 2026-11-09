@@ -16,12 +16,22 @@ const DEFAULT_HOSTS = ['localhost', '127.0.0.1', '[::1]']
 
 type Entry = { hostname: string; port: string | null }
 
+// Letters, digits, dots, hyphens, colons and IPv6 brackets: nothing else
+// belongs in a Host header, and refusing the rest up front keeps the URL
+// parser from being handed paths, queries, fragments or credentials.
+const HOST_CHARS = /^[A-Za-z0-9.:[\]-]+$/
+
 // Parsed as an http URL so case, IPv6 brackets and default ports are normalised.
+// One trailing dot ("name.ts.net.") is the same host, so it is dropped.
 function parse(host: string): { hostname: string; port: string } | null {
+  const value = host.trim()
+  if (!HOST_CHARS.test(value)) return null
   try {
-    const url = new URL(`http://${host.trim()}`)
-    if (url.username || url.password || url.pathname !== '/' || url.search) return null
-    return { hostname: url.hostname, port: url.port }
+    const url = new URL(`http://${value}`)
+    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+      return null
+    }
+    return { hostname: url.hostname.replace(/\.$/, ''), port: url.port }
   } catch {
     return null
   }

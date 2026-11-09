@@ -8,10 +8,10 @@ const nextConfig = {
   images: { unoptimized: true },
   poweredByHeader: false,
   experimental: {
-    // Next copies each request body for proxy.ts and keeps at most this much.
-    // Bodies are capped at 64 KB (lib/body.ts), so 1 MB bounds the memory a
-    // big upload can take while still being well over the cap, so a cut-off
-    // body is always seen as too large rather than passed on truncated.
+    // Next copies a request body for proxy.ts and keeps at most this much.
+    // proxy.ts skips requests with bodies (see the note there), so this is a
+    // backstop: 1 MB bounds memory if that ever changes, and is well over the
+    // 64 KB cap (lib/body.ts), so a cut-off body is still seen as too large.
     proxyClientMaxBodySize: '1mb',
   },
   // next dev only answers its own host by default. To use dev mode from a

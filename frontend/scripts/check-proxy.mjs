@@ -6,22 +6,25 @@
 //   PORT=3001 EXTRA_HOST=100.113.71.18:3001 node scripts/check-proxy.mjs
 //
 // EXTRA_HOST, if set, must be on the server's ALLOWED_HOSTS and is expected
-// to be served. Exits non-zero on any failure.
+// to be served, as it would be over a tailnet. BODY_READ_TIMEOUT_MS must match
+// the server's (default 15000). Exits non-zero on any failure.
 import http from 'node:http'
 
 const PORT = Number(process.env.PORT ?? 3000)
 const LOCAL = `localhost:${PORT}`
 const MB = 1024 * 1024
+const READ_TIMEOUT_MS = Number(process.env.BODY_READ_TIMEOUT_MS ?? 15_000)
 
-function request({ method = 'GET', path = '/', headers = {}, body, stream }) {
+function request({ method = 'GET', path = '/', headers = {}, body, stream, drip }) {
   return new Promise((resolve, reject) => {
     let sent = 0
+    const started = Date.now()
     const req = http.request(
       { host: '127.0.0.1', port: PORT, method, path, headers: { host: LOCAL, ...headers } },
       (res) => {
         res.resume()
-        resolve({ status: res.statusCode, sent })
-        if (stream) req.destroy() // stop uploading once the server has answered
+        resolve({ status: res.statusCode, sent, ms: Date.now() - started })
+        if (stream || drip) req.destroy() // stop uploading once the server has answered
       },
     )
     req.on('error', (error) => {
@@ -41,6 +44,16 @@ function request({ method = 'GET', path = '/', headers = {}, body, stream }) {
         else req.once('drain', () => setTimeout(pump, 10))
       }
       pump()
+    } else if (drip) {
+      // One byte every half second: never too large, only too slow.
+      const tick = () => {
+        if (req.destroyed || req.res) return
+        if (Date.now() - started > drip) return req.end()
+        sent += 1
+        req.write('{')
+        setTimeout(tick, 500)
+      }
+      tick()
     } else {
       req.end(body)
     }
@@ -75,6 +88,28 @@ const cases = [
     (s, sent) => s === 413 && sent < 50 * MB,
   ],
   ['traversal', { path: '/api/%2e%2e/openapi.json' }, 404],
+  ['page, Host with a fragment', { headers: { host: `localhost#x` } }, 421],
+  ['page, Host with a path', { headers: { host: `localhost:${PORT}/x` } }, 421],
+  ['page, Host with credentials', { headers: { host: `user@localhost:${PORT}` } }, 421],
+  ['page, Host with one trailing dot', { headers: { host: `localhost.:${PORT}` } }, 200],
+  ['page, unknown Host with trailing dot', { headers: { host: 'evil.example.' } }, 421],
+  ['page, write with a body', { method: 'POST', path: '/rate', headers: json, body: '{}' }, 405],
+  [
+    'page, write with a body, unknown Host (nothing served)',
+    { method: 'POST', path: '/', headers: { ...json, host: 'evil.example' }, body: '{}' },
+    405,
+  ],
+  ['page, write without a body', { method: 'POST', path: '/rate' }, 405],
+  [
+    'page, 300 MB chunked write',
+    { method: 'POST', path: '/rate', headers: { ...json, 'transfer-encoding': 'chunked' }, stream: 300 * MB },
+    (s, sent) => s === 405 && sent < 50 * MB,
+  ],
+  [
+    `write, slow drip (deadline ${READ_TIMEOUT_MS} ms)`,
+    { ...write, body: undefined, headers: { ...json, 'transfer-encoding': 'chunked' }, drip: READ_TIMEOUT_MS + 10_000 },
+    (s, _sent, ms) => s === 408 && ms < READ_TIMEOUT_MS + 3_000,
+  ],
 ]
 
 if (process.env.EXTRA_HOST) {
@@ -82,15 +117,25 @@ if (process.env.EXTRA_HOST) {
   cases.push(
     [`page, ${host}`, { headers: { host } }, 200],
     [`write, Origin http://${host}`, { ...write, headers: { ...json, host, origin: `http://${host}` } }, passed],
+    [
+      `write, Host ${host} but Origin not listed`,
+      { ...write, headers: { ...json, host, origin: 'http://not-listed.example' } },
+      403,
+    ],
+    ['page, a name not on the list', { headers: { host: `not-listed.example:${PORT}` } }, 421],
   )
 }
 
 let failures = 0
 for (const [name, options, expected] of cases) {
-  const { status, sent } = await request(options)
-  const ok = typeof expected === 'function' ? expected(status, sent) : status === expected
+  const { status, sent, ms } = await request(options)
+  const ok = typeof expected === 'function' ? expected(status, sent, ms) : status === expected
   if (!ok) failures++
-  const note = options.stream ? ` (sent ${Math.round(sent / MB)} MB before the answer)` : ''
+  const note = options.stream
+    ? ` (sent ${Math.round(sent / MB)} MB before the answer)`
+    : options.drip
+      ? ` (answered after ${(ms / 1000).toFixed(1)} s)`
+      : ''
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${status} ${name}${note}`)
 }
 if (failures) {
