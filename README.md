@@ -79,6 +79,16 @@ cd backend
 
 `tests/test_seed.py` skips itself if the simulation files are not present.
 
+The frontend's request guards (allowed hosts, cross-site writes, body size and time limits) are checked against the built server:
+
+```bash
+cd frontend
+npm run build
+node scripts/check-proxy.mjs
+```
+
+The script starts its own stub backend and `next start` on free loopback ports, so it never touches a running app or a real database.
+
 ### Docker
 
 ```bash

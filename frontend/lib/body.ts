@@ -5,6 +5,14 @@ export const MAX_BODY_BYTES = 64 * 1024
 // byte every few seconds holds a connection for Node's 5-minute requestTimeout.
 export const BODY_READ_TIMEOUT_MS = Number(process.env.BODY_READ_TIMEOUT_MS ?? 15_000)
 
+// Cancel without waiting. Cancelling a stream whose client has gone quiet
+// does not settle until the socket closes, so awaiting it would hold the
+// request until Node's own timeout. The caller answers with Connection: close,
+// which closes the socket.
+function stop(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  reader.cancel().catch(() => {})
+}
+
 export type ReadResult =
   | { ok: true; body: Uint8Array<ArrayBuffer> }
   | { ok: false; reason: 'too_large' | 'timeout' }
@@ -31,13 +39,13 @@ export async function readCapped(
     for (;;) {
       const next = await Promise.race([reader.read(), deadline])
       if (next === 'timeout') {
-        await reader.cancel().catch(() => {})
+        stop(reader)
         return { ok: false, reason: 'timeout' }
       }
       if (next.done) break
       size += next.value.byteLength
       if (size > limit) {
-        await reader.cancel().catch(() => {})
+        stop(reader)
         return { ok: false, reason: 'too_large' }
       }
       chunks.push(next.value)

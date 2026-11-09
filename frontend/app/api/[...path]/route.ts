@@ -77,8 +77,15 @@ function backendBase(): string {
   return (process.env.BACKEND_URL || DEFAULT_BACKEND_URL).replace(/\/+$/, '')
 }
 
+// Refusals close the connection. A refused request may still be sending its
+// body (too large, too slow, or never coming), and on a kept-alive socket Node
+// would go on reading it, for minutes if the client drips, before the socket
+// could be reused.
 function json(status: number, detail: string): Response {
-  return Response.json({ detail }, { status, headers: { 'cache-control': 'no-store' } })
+  return Response.json(
+    { detail },
+    { status, headers: { 'cache-control': 'no-store', connection: 'close' } },
+  )
 }
 
 function filterHeaders(source: Headers, drop: Set<string>): Headers {

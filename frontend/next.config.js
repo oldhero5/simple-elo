@@ -21,7 +21,18 @@ const nextConfig = {
     .map((origin) => origin.trim())
     .filter(Boolean),
   async headers() {
+    // A request with a body reaching a page is refused (405, or 404 for no
+    // page), and proxy.ts does not see it (see the note there). Close the
+    // connection on that answer, or Node reads and discards the rest of the
+    // body to keep the socket alive: gigabytes, or minutes of a slow drip.
+    const pageWithBody = (key) => ({
+      source: '/((?!api(?:/|$)).*)',
+      has: [{ type: 'header', key }],
+      headers: [{ key: 'Connection', value: 'close' }],
+    })
     return [
+      pageWithBody('content-length'),
+      pageWithBody('transfer-encoding'),
       {
         source: '/:path*',
         headers: [

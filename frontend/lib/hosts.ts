@@ -10,6 +10,13 @@
  * separated, in ALLOWED_HOSTS, for example
  *   ALLOWED_HOSTS=100.113.71.18,eigens-mac-studio.tail3355e0.ts.net
  * An entry without a port allows any port; "name:3000" allows only that port.
+ *
+ * What this does not see: a request with two Host headers. Node keeps the
+ * first and drops the rest before Next sees them, and Next does not expose
+ * the raw headers, so "Host: localhost" then "Host: evil.example" is checked
+ * as localhost. Only a non-browser client can send that, and such a client
+ * can send any single Host it likes anyway: the allowlist is a defence
+ * against browsers (DNS rebinding), which always send exactly one Host.
  */
 
 const DEFAULT_HOSTS = ['localhost', '127.0.0.1', '[::1]']
