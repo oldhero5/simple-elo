@@ -47,10 +47,16 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
-      # Host allowlist, cross-site write and body-size guards against the real
-      # server. No backend is needed: every refusal happens before the proxy.
+      # Host allowlist, cross-site write, body-size and body-time guards
+      # against the real server. No backend is needed: every refusal happens
+      # before the proxy calls it. The extra hosts stand in for a tailnet IP
+      # and MagicDNS name; each run also checks unlisted names are refused.
       - name: Check request guards
+        env:
+          ALLOWED_HOSTS: ci-mac.tailnet.example,100.64.0.1
+          BODY_READ_TIMEOUT_MS: "3000"
         run: |
           npx next start -p 3000 > next.log 2>&1 &
           for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:3000/ && break; sleep 1; done
-          node scripts/check-proxy.mjs || { cat next.log; exit 1; }
+          EXTRA_HOST=ci-mac.tailnet.example:3000 node scripts/check-proxy.mjs || { cat next.log; exit 1; }
+          EXTRA_HOST=100.64.0.1:3000 node scripts/check-proxy.mjs || { cat next.log; exit 1; }
