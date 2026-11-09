@@ -133,7 +133,10 @@ def score_track(track, comparisons, rounds, next_rating_id, start_rating=1000.0)
 
 def check_against_simulation(performance_rows, source: Path) -> float:
     """The loaded record must reproduce the simulation's ratings at every quarter."""
-    expected = {int(r["officer_id"]): r for r in read_csv(source / "E_ratings_by_quarter.csv")}
+    expected = {
+        int(r["officer_id"]): r
+        for r in read_csv(source / "E_ratings_by_quarter.csv")
+    }
     latest: dict[int, float] = {}
     worst = 0.0
     quarter = 1

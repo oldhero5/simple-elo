@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install all dependencies (including dev dependencies for build)
-RUN npm install
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build
 
 # Remove dev dependencies to reduce image size
-RUN npm prune --production
+RUN npm prune --omit=dev
 
 # Expose port
 EXPOSE 3000

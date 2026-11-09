@@ -88,7 +88,7 @@ def shuffled_replay(
         seed: fixes the orders
     """
     rng = np.random.default_rng(seed)
-    n, m = len(start), len(a)
+    m = len(a)
     recorded = replay_in_order(a, b, scores, start, k_factor)
 
     # Integer quarter plus a key in [0, 1) sorts by quarter, shuffled within it.

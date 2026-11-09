@@ -12,6 +12,7 @@ import duckdb
 
 from bands import band_for_rank
 from elo import A_WINS, B_WINS, CANT_JUDGE, DRAW, apply_outcome
+from errors import RatingError
 from models import (
     EloHistoryPoint,
     Matchup,
@@ -34,9 +35,39 @@ QUESTIONS = {
     "potential": "Who has the greater potential to serve at the next level?",
 }
 
-PERSONNEL_COLUMNS = (
-    "id, name, rank, unit, band, initial_elo, current_elo, current_potential, "
-    "created_at, active, synthetic"
+# Every optional column read with its default. The migration fills NULLs on
+# start, but a NULL written while running (by hand, or by an older build) must
+# not break every roster, stats and round read until the next restart.
+PERSONNEL_DEFAULTS = {
+    "unit": "'UNASSIGNED'",
+    "band": "'unbanded'",
+    "initial_elo": "1000",
+    "current_elo": "coalesce(initial_elo, 1000)",
+    "current_potential": "coalesce(initial_elo, 1000)",
+    "created_at": "TIMESTAMP '1970-01-01 00:00:00'",
+    "active": "TRUE",
+    "synthetic": "FALSE",
+}
+
+ACTIVE = "coalesce(active, TRUE)"
+
+
+def _with_default(column: str) -> str:
+    return f"coalesce({column}, {PERSONNEL_DEFAULTS[column]})"
+
+
+PERSONNEL_COLUMNS = "id, name, rank, " + ", ".join(
+    f"{_with_default(c)} AS {c}"
+    for c in (
+        "unit",
+        "band",
+        "initial_elo",
+        "current_elo",
+        "current_potential",
+        "created_at",
+        "active",
+        "synthetic",
+    )
 )
 
 SCHEMA = """
@@ -146,6 +177,12 @@ class Database:
         with self.get_connection() as conn:
             conn.execute(SCHEMA)
             self._migrate(conn)
+            # Fold the schema changes into the file now. DuckDB 1.x cannot
+            # replay an ALTER TABLE on these tables from the write-ahead log,
+            # so a kill before the next checkpoint (a crash, power loss, any
+            # request still holding a connection) would leave a file that no
+            # longer opens. Later writes are plain DML, which replays fine.
+            conn.execute("CHECKPOINT")
 
     def _migrate(self, conn):
         for table, column, ddl in ADDED_COLUMNS:
@@ -155,6 +192,23 @@ class Database:
             info = conn.execute(f"PRAGMA table_info('{table}')").fetchall()
             if next(c[2] for c in info if c[1] == column) != "DOUBLE":
                 conn.execute(f"ALTER TABLE {table} ALTER {column} TYPE DOUBLE")
+
+        # These columns allow NULL and the API once let a null initial_elo
+        # through. Reads tolerate NULLs (PERSONNEL_COLUMNS); store the defaults
+        # too. initial_elo first: the ratings fall back to it.
+        for column in (
+            "initial_elo",
+            "current_elo",
+            "current_potential",
+            "unit",
+            "created_at",
+            "active",
+            "synthetic",
+        ):
+            conn.execute(
+                f"UPDATE personnel SET {column} = {PERSONNEL_DEFAULTS[column]} "
+                f"WHERE {column} IS NULL"
+            )
 
         unbanded = conn.execute(
             "SELECT DISTINCT rank FROM personnel WHERE band IS NULL"
@@ -200,7 +254,8 @@ class Database:
             cursor = conn.execute(
                 f"""
                 INSERT INTO personnel
-                    (name, rank, unit, band, initial_elo, current_elo, current_potential)
+                    (name, rank, unit, band, initial_elo, current_elo,
+                     current_potential)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 RETURNING {PERSONNEL_COLUMNS}
                 """,
@@ -223,7 +278,7 @@ class Database:
                 conn.execute(
                     f"""
                     SELECT {PERSONNEL_COLUMNS} FROM personnel
-                    WHERE id = ? AND active = TRUE
+                    WHERE id = ? AND {ACTIVE}
                     """,
                     (personnel_id,),
                 )
@@ -240,7 +295,7 @@ class Database:
         """Get personnel, highest performance rating first"""
         where, params = [], []
         if active_only:
-            where.append("active = TRUE")
+            where.append(ACTIVE)
         if band:
             where.append("band = ?")
             params.append(band)
@@ -295,7 +350,8 @@ class Database:
                 return Personnel(**person)
 
             values.append(personnel_id)
-            # UPDATE ... RETURNING raises a false duplicate-key error in DuckDB 0.9.
+            # UPDATE then SELECT rather than UPDATE ... RETURNING, which raised a
+            # false duplicate-key error on DuckDB 0.9. Harmless on 1.x.
             conn.execute(
                 f"UPDATE personnel SET {', '.join(updates)} WHERE id = ?", values
             )
@@ -337,7 +393,7 @@ class Database:
                              ELSE r.ratee_b_elo_after END AS elo_score
                     FROM personnel p
                     JOIN ratings r ON p.id = r.ratee_a_id OR p.id = r.ratee_b_id
-                    WHERE p.active = TRUE AND r.track = ? AND r.outcome <> ?
+                    WHERE coalesce(p.active, TRUE) AND r.track = ? AND r.outcome <> ?
                     ORDER BY r.id
                     """,
                     (track, CANT_JUDGE),
@@ -402,7 +458,7 @@ class Database:
         """Create a round with budgeted matchups"""
         people = self.get_all_personnel(active_only=True, band=round_data.band)
         if len(people) < 2:
-            raise ValueError("Need at least 2 active personnel to create a round")
+            raise RatingError("Need at least 2 active personnel to create a round")
 
         plans = select_pairs(
             [(p.id, p.band, p.unit) for p in people],
@@ -412,7 +468,7 @@ class Database:
         )
         pairs = [pair for plan in plans for pair in plan.pairs]
         if not pairs:
-            raise ValueError("No band has 2 active personnel to compare")
+            raise RatingError("No band has 2 active personnel to compare")
 
         rating = RATING_COLUMN[round_data.track]
         snapshot = json.dumps(
@@ -640,27 +696,29 @@ class Database:
                 (matchup_id, round_id),
             ).fetchone()
             if not matchup:
-                raise ValueError("Matchup not found in this round")
+                raise RatingError("Matchup not found in this round")
             a_id, b_id, status, track, quarter, dtg = matchup
             if status != "pending":
-                raise ValueError("Matchup has already been answered")
+                raise RatingError("Matchup has already been answered")
 
             column = RATING_COLUMN[track]
             people = dict_rows(
                 conn.execute(
                     f"""
-                    SELECT id, band, unit, {column} AS rating FROM personnel
-                    WHERE id IN (?, ?) AND active = TRUE
+                    SELECT id, {_with_default("band")} AS band,
+                           {_with_default("unit")} AS unit,
+                           {_with_default(column)} AS rating
+                    FROM personnel WHERE id IN (?, ?) AND {ACTIVE}
                     """,
                     (a_id, b_id),
                 )
             )
             by_id = {p["id"]: p for p in people}
             if len(by_id) != 2:
-                raise ValueError("Personnel not found")
+                raise RatingError("Personnel not found")
             person_a, person_b = by_id[a_id], by_id[b_id]
             if person_a["band"] != person_b["band"]:
-                raise ValueError("Ratings are kept within band")
+                raise RatingError("Ratings are kept within band")
 
             if cant_judge:
                 outcome = CANT_JUDGE
@@ -671,7 +729,7 @@ class Database:
             elif winner_id == b_id:
                 outcome = B_WINS
             else:
-                raise ValueError("Winner is not in this matchup")
+                raise RatingError("Winner is not in this matchup")
 
             new_a, new_b = apply_outcome(
                 person_a["rating"], person_b["rating"], outcome

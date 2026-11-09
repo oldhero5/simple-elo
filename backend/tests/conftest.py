@@ -7,3 +7,5 @@ sys.path.insert(0, str(BACKEND))
 
 # database.py opens a module-level instance on import; keep it off real data.
 os.environ.setdefault("DATABASE_URL", "/tmp/simple-elo-pytest-import.db")
+# TestClient sends Host: testserver.
+os.environ.setdefault("BACKEND_ALLOWED_HOSTS", "127.0.0.1,localhost,backend,testserver")

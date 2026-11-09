@@ -3,15 +3,74 @@ Pydantic models for the Elo rating system
 """
 
 from datetime import datetime
-from typing import Literal, Optional
+import unicodedata
+from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 Track = Literal["performance", "potential"]
 Band = Literal["tactical", "operational", "strategic", "unbanded"]
 Outcome = Literal["a_wins", "b_wins", "draw", "cant_judge"]
 
 UNASSIGNED = "UNASSIGNED"
+
+# A quarter number past this is a typo, not a hundred years of records.
+MAX_QUARTER = 400
+
+# numpy seeds are unsigned; keep them in the range every generator accepts.
+MAX_SEED = 2**32 - 1
+
+
+# Bidirectional embeddings, overrides and isolates: they can make a name
+# display as something else ("Trojan Source").
+_BIDI_CONTROLS = frozenset(map(chr, [*range(0x202A, 0x202F), *range(0x2066, 0x206A)]))
+
+
+def _printable_text(value: str) -> str:
+    """NFC-normalise, then refuse characters that break or disguise a line.
+
+    Refused: control characters (Cc: NUL, tab, newline, DEL...), the line and
+    paragraph separators (Zl, Zp), bidi controls and lone surrogates (Cs).
+    Allowed: other format characters (Cf) that real names need, such as the
+    zero-width non-joiner in Persian names, the zero-width joiner in emoji and
+    the soft hyphen, and code points newer than this Python's Unicode (Cn).
+    """
+    value = unicodedata.normalize("NFC", value)
+    for c in value:
+        if unicodedata.category(c) in ("Cc", "Zl", "Zp", "Cs") or c in _BIDI_CONTROLS:
+            raise ValueError(
+                "must not contain control characters, line breaks or "
+                "text-direction overrides"
+            )
+    return value
+
+
+def _text(max_length: int):
+    """Trimmed, non-empty, printable text of at most max_length characters."""
+    return Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=max_length),
+        AfterValidator(_printable_text),
+    ]
+
+
+Name = _text(100)
+Rank = _text(10)
+Unit = _text(50)
+RoundName = _text(120)
+
+
+class Input(BaseModel):
+    """Base for request bodies: NaN and infinity are not numbers here."""
+
+    model_config = ConfigDict(allow_inf_nan=False)
 
 
 class PersonnelBase(BaseModel):
@@ -20,14 +79,17 @@ class PersonnelBase(BaseModel):
     unit: str = UNASSIGNED
 
 
-class PersonnelCreate(PersonnelBase):
-    initial_elo: Optional[int] = 1000
+class PersonnelCreate(Input):
+    name: Name
+    rank: Rank
+    unit: Unit = UNASSIGNED
+    initial_elo: int = Field(default=1000, ge=0, le=5000)
 
 
-class PersonnelUpdate(BaseModel):
-    name: Optional[str] = None
-    rank: Optional[str] = None
-    unit: Optional[str] = None
+class PersonnelUpdate(Input):
+    name: Optional[Name] = None
+    rank: Optional[Rank] = None
+    unit: Optional[Unit] = None
     active: Optional[bool] = None
 
 
@@ -45,19 +107,19 @@ class Personnel(PersonnelBase):
         from_attributes = True
 
 
-class RoundConfig(BaseModel):
+class RoundConfig(Input):
     """How a round's pairs are chosen. Defaults follow the information paper."""
 
     track: Track = "performance"
     comparisons_per_officer: int = Field(default=10, ge=1, le=29)
     cross_unit_share: float = Field(default=0.2, ge=0, le=1)
-    quarter: Optional[int] = Field(default=None, ge=1)
+    quarter: Optional[int] = Field(default=None, ge=1, le=MAX_QUARTER)
     band: Optional[Band] = None
-    seed: Optional[int] = None
+    seed: Optional[int] = Field(default=None, ge=0, le=MAX_SEED)
 
 
 class RoundCreate(RoundConfig):
-    round_name: str
+    round_name: RoundName
     dtg: Optional[datetime] = None
 
 
@@ -93,7 +155,7 @@ class Matchup(BaseModel):
         from_attributes = True
 
 
-class RatingCreate(BaseModel):
+class RatingCreate(Input):
     round_id: Optional[int] = None
     matchup_id: Optional[int] = None
     ratee_a_id: int

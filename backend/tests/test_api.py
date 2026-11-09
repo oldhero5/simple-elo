@@ -8,6 +8,9 @@ import main
 from database import Database
 
 
+JSON = {"Content-Type": "application/json"}
+
+
 @pytest.fixture
 def database(tmp_path, monkeypatch):
     fresh = Database(str(tmp_path / "test.db"))
@@ -320,7 +323,7 @@ def test_round_is_budgeted_not_all_pairs(client):
 
 def test_default_round_uses_ten_per_officer_and_twenty_percent(client):
     add_pool(client, n=30, units=("U1", "U2", "U3"))
-    round_ = client.post("/api/rounds/new").json()["round"]
+    round_ = client.post("/api/rounds/new", headers=JSON).json()["round"]
     assert round_["comparisons_per_officer"] == 10
     assert round_["cross_unit_share"] == 0.2
     assert round_["total_matchups"] == 150
@@ -339,12 +342,13 @@ def test_budget_out_of_range_is_rejected(client):
         client.post("/api/rounds/new", json={"comparisons_per_officer": 0}).status_code
         == 422
     )
-    assert client.post("/api/rounds/new", json={"cross_unit_share": 2}).status_code == 422
+    response = client.post("/api/rounds/new", json={"cross_unit_share": 2})
+    assert response.status_code == 422
 
 
 def test_new_round_with_too_few_personnel_is_a_clear_error(client):
     add(client, "Alone")
-    response = client.post("/api/rounds/new")
+    response = client.post("/api/rounds/new", headers=JSON)
     assert response.status_code == 400
 
 
@@ -516,3 +520,300 @@ def test_existing_database_is_migrated_in_place(tmp_path, monkeypatch):
     assert round_["track"] == "performance"
     pair = next_pair(client)
     assert answer(client, pair, pair["person_a"]["id"]).status_code == 200
+
+
+# Request hardening
+def test_unknown_host_is_refused(client):
+    for host, status in (("evil.example", 400), ("127.0.0.1:8000", 200)):
+        assert client.get("/api/meta", headers={"Host": host}).status_code == status
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"Content-Type": "text/plain"},
+        {"Content-Type": "application/x-www-form-urlencoded"},
+    ],
+)
+def test_writes_must_be_json(client, headers):
+    body = '{"name": "X", "rank": "CPT"}'
+    response = client.post("/api/personnel", content=body, headers=headers)
+    assert response.status_code == 415
+    assert client.post("/api/rounds/start-first", headers=headers).status_code == 415
+    assert client.get("/api/personnel").json() == []
+
+
+def test_json_with_charset_is_accepted(client):
+    response = client.post(
+        "/api/personnel",
+        content='{"name": "X", "rank": "CPT"}',
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/api/history?limit=-1",
+        "/api/history?limit=0",
+        "/api/history?limit=501",
+        "/api/personnel?limit=5001",
+        "/api/population?quarter_to=401",
+        "/api/replay?band=tactical&through_quarter=401",
+    ],
+)
+def test_out_of_range_queries_are_422(client, url):
+    assert client.get(url).status_code == 422
+
+
+@pytest.mark.parametrize("initial_elo", [-1, 5001, 99999999999])
+def test_out_of_range_initial_elo_is_422(client, initial_elo):
+    response = client.post(
+        "/api/personnel", json={"name": "X", "rank": "CPT", "initial_elo": initial_elo}
+    )
+    assert response.status_code == 422
+
+
+def test_round_quarter_has_an_upper_bound(client):
+    add_pool(client)
+    response = client.post("/api/rounds/new", json={"quarter": 401})
+    assert response.status_code == 422
+
+
+def test_database_errors_are_not_echoed(client, monkeypatch):
+    def broken(_):
+        raise RuntimeError("Conversion Error: secret INT32 detail")
+
+    monkeypatch.setattr(main.db, "create_personnel", broken)
+    response = client.post("/api/personnel", json={"name": "X", "rank": "CPT"})
+    assert response.status_code == 500
+    assert "INT32" not in response.text
+
+
+# Input hardening, second review
+def test_initial_elo_cannot_be_null(client):
+    response = client.post(
+        "/api/personnel", json={"name": "X", "rank": "CPT", "initial_elo": None}
+    )
+    assert response.status_code == 422
+    assert add(client, "Y")["initial_elo"] == 1000
+
+
+def test_null_ratings_left_by_older_versions_are_repaired(tmp_path, monkeypatch):
+    path = str(tmp_path / "nulls.db")
+    Database(path)
+    with duckdb.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO personnel (name, rank, unit, band, initial_elo, current_elo,"
+            " current_potential) VALUES ('Null', 'CPT', 'U1', 'tactical',"
+            " NULL, NULL, NULL)"
+        )
+    monkeypatch.setattr(main, "db", Database(path))
+    client = TestClient(main.app)
+    for url in ("/api/leaderboard", "/api/stats", "/api/personnel"):
+        assert client.get(url).status_code == 200, url
+    person = client.get("/api/personnel").json()[0]
+    assert (person["initial_elo"], person["current_elo"]) == (1000, 1000)
+    assert client.delete(f"/api/personnel/{person['id']}").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "url, body",
+    [
+        ("/api/personnel", '{"name": "X", "rank": "CPT", "initial_elo": 1e309}'),
+        ("/api/personnel", '{"name": "X", "rank": "CPT", "initial_elo": NaN}'),
+        ("/api/rounds/new", '{"cross_unit_share": NaN}'),
+        ("/api/rounds/new", '{"cross_unit_share": 1e309}'),
+        ("/api/rounds/new", '{"cross_unit_share": -Infinity}'),
+    ],
+)
+def test_non_finite_numbers_get_a_clean_422(client, url, body):
+    response = client.post(url, content=body, headers=JSON)
+    assert response.status_code == 422
+    for error in response.json()["detail"]:
+        assert set(error) == {"type", "loc", "msg"}
+
+
+@pytest.mark.parametrize("seed", [-1, 2**32])
+def test_seed_is_bounded(client, seed):
+    add_pool(client)
+    url = f"/api/replay?band=tactical&seed={seed}"
+    assert client.get(url).status_code == 422
+    response = client.post("/api/rounds/new", json={"seed": seed})
+    assert response.status_code == 422
+
+
+def test_only_app_errors_reach_the_client(client, monkeypatch):
+    from errors import RatingError
+
+    def library_error(_):
+        raise ValueError("3 validation errors for Personnel errors.pydantic.dev")
+
+    def app_error(_):
+        raise RatingError("Need at least 2 active personnel to create a round")
+
+    monkeypatch.setattr(main.db, "start_new_round", library_error)
+    response = client.post("/api/rounds/new", json={})
+    assert response.status_code == 500
+    assert "pydantic" not in response.text
+    monkeypatch.setattr(main.db, "start_new_round", app_error)
+    response = client.post("/api/rounds/new", json={})
+    assert response.status_code == 400
+    assert response.json()["detail"].startswith("Need at least 2")
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("name", ""),
+        ("name", "   "),
+        ("name", "a" * 101),
+        ("name", "x\x00y"),
+        ("name", "tab\there"),
+        ("rank", "a" * 11),
+        ("unit", "u" * 51),
+        ("unit", ""),
+    ],
+)
+def test_personnel_text_is_checked(client, field, value):
+    body = {"name": "X", "rank": "CPT", "unit": "U1", field: value}
+    assert client.post("/api/personnel", json=body).status_code == 422
+    person = add(client, "Edit me")
+    response = client.put(f"/api/personnel/{person['id']}", json={field: value})
+    assert response.status_code == 422
+
+
+def test_personnel_text_is_trimmed(client):
+    body = {"name": "  Bob  ", "rank": " CPT ", "unit": " U1 "}
+    person = client.post("/api/personnel", json=body).json()
+    assert (person["name"], person["rank"], person["unit"]) == ("Bob", "CPT", "U1")
+
+
+def test_round_name_is_checked(client):
+    add_pool(client)
+    for name in ("", "r" * 121, "bad\x07name"):
+        response = client.post("/api/rounds", json={"round_name": name})
+        assert response.status_code == 422
+
+
+def test_body_less_writes_still_need_json_content_type(client):
+    add_pool(client)
+    assert client.post("/api/rounds/start-first").status_code == 415
+    response = client.post("/api/rounds/start-first", headers=JSON)
+    assert response.status_code == 200
+    person = add(client, "Leaving")
+    # DELETE is exempt: browsers cannot send one cross-site without a preflight.
+    assert client.delete(f"/api/personnel/{person['id']}").status_code == 200
+
+
+def test_null_columns_written_while_running_break_no_read(client, database):
+    people = add_pool(client, n=6)
+    elo_null, rest_null = people[0]["id"], people[1]["id"]
+    with duckdb.connect(database.db_path) as conn:
+        conn.execute(
+            "UPDATE personnel SET initial_elo = NULL, current_elo = NULL,"
+            " current_potential = NULL WHERE id = ?",
+            (elo_null,),
+        )
+        conn.execute(
+            "UPDATE personnel SET unit = NULL, band = NULL, created_at = NULL,"
+            " active = NULL, synthetic = NULL WHERE id = ?",
+            (rest_null,),
+        )
+
+    reads = [
+        "/api/personnel",
+        "/api/personnel?active_only=false",
+        f"/api/personnel/{elo_null}",
+        f"/api/personnel/{rest_null}",
+        "/api/leaderboard",
+        "/api/stats",
+        "/api/filters",
+        "/api/population",
+        "/api/population?band=tactical",
+        "/api/elo-progression",
+    ]
+    for url in reads:
+        assert client.get(url).status_code == 200, url
+    shown = {p["id"]: p for p in client.get("/api/personnel?active_only=false").json()}
+    assert shown[elo_null]["current_elo"] == 1000
+    assert shown[rest_null]["unit"] == "UNASSIGNED"
+    assert shown[rest_null]["active"] is True
+
+    round_ = start(client, comparisons_per_officer=2)
+    for _ in range(round_["total_matchups"]):
+        pair = client.get("/api/comparison/full")
+        if pair.status_code == 404:
+            break
+        pair = pair.json()
+        assert answer(client, pair, pair["person_a"]["id"]).status_code == 200
+    for url in reads + ["/api/replay?band=tactical&shuffles=5", "/api/history"]:
+        assert client.get(url).status_code == 200, url
+    response = client.put(f"/api/personnel/{elo_null}", json={"name": "Renamed"})
+    assert response.status_code == 200
+    for person in (elo_null, rest_null):
+        assert client.delete(f"/api/personnel/{person}").status_code == 200
+
+
+def test_startup_fills_every_nullable_personnel_column(tmp_path):
+    path = str(tmp_path / "nulls.db")
+    Database(path)
+    with duckdb.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO personnel (name, rank, unit, band, initial_elo, current_elo,"
+            " current_potential, created_at, active, synthetic) VALUES"
+            " ('Null', 'CPT', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"
+        )
+    Database(path)
+    with duckdb.connect(path) as conn:
+        row = conn.execute(
+            "SELECT unit, band, initial_elo, current_elo, current_potential,"
+            " created_at IS NOT NULL, active, synthetic FROM personnel"
+        ).fetchone()
+    assert row == ("UNASSIGNED", "tactical", 1000, 1000, 1000, True, True, False)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "مه‌سا",  # Persian, zero-width non-joiner
+        "Dev \U0001F469‍\U0001F4BB",  # emoji ZWJ sequence
+        "Jo­hannes",  # soft hyphen
+        "New \U0001FAF7",  # newer than Python 3.11's Unicode 14 (Cn there)
+        "O'Brien-Smith",
+    ],
+)
+def test_real_names_are_accepted(client, name):
+    response = client.post("/api/personnel", json={"name": name, "rank": "CPT"})
+    assert response.status_code == 200, response.text
+    assert response.json()["name"] == name
+
+
+def test_names_are_nfc_normalised(client):
+    person = add(client, "José")
+    assert person["name"] == "José"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "a b",  # line separator
+        "a b",  # paragraph separator
+        "abc‮dcba",  # right-to-left override
+        "a⁦b⁩",  # left-to-right isolate
+        "a\x7fb",  # DEL
+        "a\nb",
+    ],
+)
+def test_line_breaking_and_disguising_characters_are_refused(client, name):
+    response = client.post("/api/personnel", json={"name": name, "rank": "CPT"})
+    assert response.status_code == 422
+    assert "text-direction" in response.text
+
+
+def test_lone_surrogates_are_refused(client):
+    body = '{"name": "a\\ud800b", "rank": "CPT"}'
+    response = client.post("/api/personnel", content=body, headers=JSON)
+    assert response.status_code == 422

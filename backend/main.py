@@ -2,14 +2,22 @@
 FastAPI backend for Elo Rating System
 """
 
+import logging
+import os
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from database import db
+from errors import RatingError
 from elo import get_expected_score, get_rating_change_preview
 from models import (
+    MAX_QUARTER,
+    MAX_SEED,
     Band,
     ComparisonPair,
     EloHistoryPoint,
@@ -26,6 +34,21 @@ from models import (
 )
 from population import get_filters, get_population, get_replay
 
+logger = logging.getLogger("simple_elo")
+
+# Hosts this API answers to. The browser never talks to it directly: the
+# frontend proxies /api, so only loopback and the compose service name are
+# needed. Refusing other Host headers stops DNS-rebinding pages reaching it.
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.getenv("BACKEND_ALLOWED_HOSTS", "127.0.0.1,localhost,backend").split(
+        ","
+    )
+    if h.strip()
+]
+
+WRITE_METHODS = {"POST", "PUT", "PATCH"}
+
 app = FastAPI(
     title="Elo Performance Rating System",
     description="Military-grade performance evaluation using ELO algorithms",
@@ -40,6 +63,49 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
+
+
+@app.middleware("http")
+async def require_json_writes(request: Request, call_next):
+    """Refuse writes that are not JSON.
+
+    A form or a no-cors fetch from another site can send a POST without a
+    preflight only with a form or text content type, or none at all. Every
+    write this app makes is JSON, so anything else is refused.
+    """
+    if request.method in WRITE_METHODS:
+        content_type = request.headers.get("content-type", "")
+        if content_type.split(";")[0].strip().lower() != "application/json":
+            return JSONResponse(
+                {"detail": "Content-Type must be application/json"}, status_code=415
+            )
+    return await call_next(request)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(_request: Request, exc: RequestValidationError):
+    """422 with where and what, but not the offending value.
+
+    FastAPI's default echoes the input and the error context. Echoing NaN or
+    1e309 makes the response itself unserialisable (a 500 and a reset
+    connection), and echoing input is never needed to fix a request.
+    """
+    errors = [
+        {
+            "type": str(e.get("type", "")),
+            "loc": [str(part) for part in e.get("loc", ())],
+            "msg": str(e.get("msg", "")),
+        }
+        for e in exc.errors()
+    ]
+    return JSONResponse({"detail": errors}, status_code=422)
+
+
+def _internal_error(action: str) -> HTTPException:
+    """Log the real exception, hand the client a generic message."""
+    logger.exception("%s failed", action)
+    return HTTPException(status_code=500, detail=f"Could not {action}")
 
 
 @app.get("/")
@@ -54,8 +120,10 @@ async def create_personnel(personnel_data: PersonnelCreate):
     """Create new personnel entry"""
     try:
         return db.create_personnel(personnel_data)
-    except Exception as e:
+    except RatingError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise _internal_error("add personnel")
 
 
 @app.get("/api/personnel", response_model=List[Personnel])
@@ -63,7 +131,7 @@ async def get_all_personnel(
     active_only: bool = True,
     band: Optional[Band] = None,
     unit: Optional[str] = None,
-    limit: Optional[int] = Query(default=None, ge=1),
+    limit: Optional[int] = Query(default=None, ge=1, le=5000),
 ):
     """Get personnel ordered by performance rating"""
     return db.get_all_personnel(
@@ -112,8 +180,8 @@ async def delete_personnel(personnel_id: int):
         return {"message": "Personnel deactivated successfully"}
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+    except Exception:
+        raise _internal_error("deactivate personnel")
 
 
 # Rating endpoints
@@ -184,12 +252,14 @@ async def submit_rating(rating_data: RatingCreate):
             rating_data.cant_judge,
             rating_data.rater_id,
         )
-    except ValueError as e:
+    except RatingError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise _internal_error("record the answer")
 
 
 @app.get("/api/history", response_model=List[Rating])
-async def get_rating_history(limit: int = 100):
+async def get_rating_history(limit: int = Query(default=100, ge=1, le=500)):
     """Get recent rating history"""
     return db.get_rating_history(limit=limit)
 
@@ -260,8 +330,8 @@ async def population(
     track: Track = "performance",
     band: Optional[Band] = None,
     unit: Optional[str] = None,
-    quarter_from: Optional[int] = Query(default=None, ge=1),
-    quarter_to: Optional[int] = Query(default=None, ge=1),
+    quarter_from: Optional[int] = Query(default=None, ge=1, le=MAX_QUARTER),
+    quarter_to: Optional[int] = Query(default=None, ge=1, le=MAX_QUARTER),
     limit: int = Query(default=25, ge=1, le=500),
 ):
     """The comparison record cut by band, unit and time"""
@@ -273,9 +343,9 @@ async def replay(
     band: Band,
     track: Track = "performance",
     unit: Optional[str] = None,
-    through_quarter: Optional[int] = Query(default=None, ge=1),
+    through_quarter: Optional[int] = Query(default=None, ge=1, le=MAX_QUARTER),
     shuffles: int = Query(default=100, ge=2, le=500),
-    seed: int = 0,
+    seed: int = Query(default=0, ge=0, le=MAX_SEED),
     limit: int = Query(default=30, ge=1, le=500),
 ):
     """Replay a band's record in shuffled orders and report the rating spread"""
@@ -288,10 +358,10 @@ async def create_round(round_data: RoundCreate):
     """Create a new round"""
     try:
         return db.create_round(round_data)
-    except ValueError as e:
+    except RatingError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        raise _internal_error("create the round")
 
 
 @app.get("/api/rounds/current", response_model=Round)
@@ -317,8 +387,10 @@ async def start_new_round(config: Optional[RoundConfig] = None):
     """Start a new budgeted round (closes the current round if active)"""
     try:
         new_round = db.start_new_round(config or RoundConfig())
-    except ValueError as e:
+    except RatingError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise _internal_error("start the round")
     return {
         "message": "New round started successfully",
         "round": new_round.model_copy(update={"personnel_snapshot": ""}),
@@ -357,4 +429,4 @@ async def get_round_results(round_id: int):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
