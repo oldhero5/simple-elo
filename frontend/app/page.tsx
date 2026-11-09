@@ -1,257 +1,329 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { Trophy, Users, Target, TrendingUp, Activity } from 'lucide-react'
-import EloChart from '@/components/EloChart'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  ByUnit, Filters, Leader, Meta, Population, Track, cap, n0, n1, pct, signed, useApi,
+} from '@/lib/api'
+import UnitGraph from '@/components/UnitGraph'
+import SpreadChart from '@/components/SpreadChart'
+import EloChart, { EloDataPoint } from '@/components/EloChart'
+import { ErrorRetry, Loading, Section } from '@/components/ui'
 
-interface Personnel {
-  id: number
-  name: string
-  rank: string
-  current_elo: number
-  initial_elo: number
-  created_at: string
-  active: boolean
+const ALL = 'all'
+
+function useIsLg() {
+  const [lg, setLg] = useState(true)
+  useEffect(() => {
+    const m = window.matchMedia('(min-width: 1024px)')
+    const f = () => setLg(m.matches)
+    f(); m.addEventListener('change', f)
+    return () => m.removeEventListener('change', f)
+  }, [])
+  return lg
 }
 
-interface EloDataPoint {
-  personnel_id: number
-  name: string
-  rank: string
-  rated_at: string
-  elo_score: number
+function Select({ label, value, onChange, children }: { label: string; value: string; onChange: (v: string) => void; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="tele mb-1 block">{label}</span>
+      <select value={value} onChange={e => onChange(e.target.value)} className="field !w-auto min-w-[88px] font-mono text-[13px]">
+        {children}
+      </select>
+    </label>
+  )
 }
 
-interface Stats {
-  total_personnel: number
-  total_ratings: number
-  avg_elo: number
-  highest_elo: number
-  lowest_elo: number
+function Tele({ k, v, s }: { k: string; v: React.ReactNode; s?: React.ReactNode }) {
+  return (
+    <div className="flex justify-end gap-2 font-mono text-[11px] uppercase leading-[1.7] tracking-tele">
+      <span className="text-t3">{k}:</span>
+      <span className="tabular-nums text-t1">{v}</span>
+      {s != null && <span className="text-t2">[{s}]</span>}
+    </div>
+  )
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+function ChangeBar({ u, domain }: { u: ByUnit; domain: number }) {
+  if (u.cross_win_rate_change == null) return <span className="tele">{'—'}</span>
+  const c = u.cross_win_rate_change * 100
+  const se2 = (u.cross_win_rate_change_se ?? 0) * 200
+  const W = 120, x = (v: number) => W / 2 + (v / domain) * (W / 2 - 2)
+  const lo = c - se2, hi = c + se2
+  const colour = lo > 0 ? '#7aebff' : hi < 0 ? '#ff6666' : 'rgba(255,255,255,0.6)'
+  return (
+    <svg width={W} height={14} aria-hidden className="inline-block align-middle">
+      <line x1={W / 2} x2={W / 2} y1={0} y2={14} stroke="rgba(255,255,255,0.3)" />
+      <line x1={x(Math.max(lo, -domain))} x2={x(Math.min(hi, domain))} y1={7} y2={7} stroke={colour} strokeWidth={2} />
+      <circle cx={x(c)} cy={7} r={3.5} fill={colour} />
+    </svg>
+  )
+}
 
 export default function Dashboard() {
-  const [personnel, setPersonnel] = useState<Personnel[]>([])
-  const [eloData, setEloData] = useState<EloDataPoint[]>([])
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [track, setTrack] = useState<Track>('performance')
+  const [band, setBand] = useState<string>('tactical')
+  const [unit, setUnit] = useState<string>('')
+  const [qFrom, setQFrom] = useState<string>('')
+  const [qTo, setQTo] = useState<string>('')
+  const lg = useIsLg()
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  const filters = useApi<Filters>('/api/filters')
+  const meta = useApi<Meta>('/api/meta')
+  const stats = useApi<{ total_personnel: number }>('/api/stats')
 
-  const fetchData = async () => {
-    try {
-      setLoading(true)
-      setError(null)
+  const q = new URLSearchParams({ track, limit: '10' })
+  if (band !== ALL) q.set('band', band)
+  if (qFrom) q.set('quarter_from', qFrom)
+  if (qTo) q.set('quarter_to', qTo)
+  const pop = useApi<Population>(`/api/population?${q}`)
+  const scoped = useApi<Population>(unit ? `/api/population?${q}&unit=${unit}` : null)
+  const small = stats.data != null && stats.data.total_personnel > 0 && stats.data.total_personnel <= 50
+  const elo = useApi<EloDataPoint[]>(small ? '/api/elo-progression' : null)
 
-      const [personnelRes, eloRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/api/personnel`),
-        fetch(`${API_URL}/api/elo-progression`),
-        fetch(`${API_URL}/api/stats`)
-      ])
+  const shown = unit && scoped.data ? scoped.data : pop.data
+  const allBands = band === ALL
+  const units = useMemo(
+    () => [...(pop.data?.by_unit ?? [])].sort((a, b) => (b.cross_win_rate_change ?? -Infinity) - (a.cross_win_rate_change ?? -Infinity)),
+    [pop.data],
+  )
+  const domain = useMemo(
+    () => Math.max(5, ...units.map(u => Math.abs((u.cross_win_rate_change ?? 0) * 100) + (u.cross_win_rate_change_se ?? 0) * 200)),
+    [units],
+  )
 
-      if (!personnelRes.ok || !eloRes.ok || !statsRes.ok) {
-        throw new Error('Failed to fetch data')
-      }
+  // quarter pickers: keep from <= to
+  const quarters = filters.data?.quarters ?? []
+  const potentialNote = meta.data?.notes.find(n => n.startsWith('Potential')) ?? 'Potential answers are generated by the seed script, not the simulation.'
 
-      const [personnelData, eloProgression, statsData] = await Promise.all([
-        personnelRes.json(),
-        eloRes.json(),
-        statsRes.json()
-      ])
-
-      setPersonnel(personnelData)
-      setEloData(eloProgression)
-      setStats(statsData)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const formatElo = (elo: number) => {
-    return elo.toLocaleString('en-US')
-  }
-
-  const getEloChangeColor = (current: number, initial: number) => {
-    const change = current - initial
-    if (change > 0) return 'text-military-green'
-    if (change < 0) return 'text-military-red'
-    return 'text-military-muted'
-  }
-
-  const getEloChangeText = (current: number, initial: number) => {
-    const change = current - initial
-    if (change > 0) return `+${change}`
-    return change.toString()
-  }
-
-  if (loading) {
-    return (
-      <div className="space-y-8">
-        <div className="text-center">
-          <Activity className="h-12 w-12 text-military-green mx-auto mb-4 animate-pulse" />
-          <h1 className="text-3xl font-bold font-mono text-military-light mb-2">
-            LOADING SYSTEM DATA...
-          </h1>
-          <p className="text-military-muted">Initializing ELO rating platform</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="text-center">
-        <div className="card max-w-md mx-auto">
-          <div className="text-military-red text-6xl font-mono mb-4">ERROR</div>
-          <p className="text-military-muted mb-4">{error}</p>
-          <button
-            onClick={fetchData}
-            className="btn-primary"
-          >
-            Retry Connection
-          </button>
-        </div>
-      </div>
-    )
-  }
+  const sum = shown?.summary
+  const win = shown ? `Q${shown.filters.quarter_from ?? '—'} to Q${shown.filters.quarter_to ?? '—'}` : '—'
+  const scope = unit ? unit : allBands ? 'Officers in all bands' : `${cap(band)} officers`
+  const headline = !sum
+    ? 'Reading the comparison record'
+    : sum.comparisons === 0
+      ? `No ${track} comparisons recorded for this view.`
+      : unit
+        ? `${scope} met other units in ${pct(sum.cross_unit_share)} of its comparisons.`
+        : `${scope} met other units in ${pct(sum.cross_unit_share)} of comparisons.`
 
   return (
-    <div className="space-y-8">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold font-mono text-military-light mb-2">
-          ELO PERFORMANCE RATING SYSTEM
-        </h1>
-        <p className="text-military-muted text-lg">
-          Military-Grade Personnel Evaluation Platform
-        </p>
+    <div className="space-y-14">
+      {/* Hero: the unit link graph, from /api/population */}
+      <section aria-labelledby="hero-h" className="relative -mx-4 overflow-hidden border-b border-line px-4 pb-6 sm:-mx-8 sm:px-8 lg:pb-0">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+          <div className="grid-bg grid-warp absolute inset-0" />
+          <div className="grid-bg absolute inset-0 opacity-70" />
+        </div>
+        <div className="relative lg:h-[640px]">
+          <div className="relative z-10 max-w-[620px] lg:pt-6">
+            <p className="boot tele mb-5" style={{ ['--i' as string]: 0 }}>
+              {track} track {'/'} {allBands ? 'all bands' : `${band} band`} {'/'} {unit || 'all units'}
+            </p>
+            <h1 id="hero-h" className="boot display text-[40px] sm:text-6xl lg:text-[72px]" style={{ ['--i' as string]: 1 }}>
+              {headline}
+            </h1>
+            <p className="boot mt-6 max-w-md text-[15px] leading-relaxed text-t2" style={{ ['--i' as string]: 3 }}>
+              Each circle is a unit, sized by officers. Dotted lines are comparisons between two units, heavier where there are more.
+              {' '}Cyan marks the unit whose cross-unit win rate rose most between the early and late quarters. Select a unit to cut every figure below to it.
+            </p>
+          </div>
+
+          <div className="relative mt-6 h-[400px] lg:absolute lg:inset-0 lg:mt-0 lg:h-auto">
+            {pop.data && (
+              <UnitGraph
+                units={pop.data.by_unit}
+                links={pop.data.unit_links}
+                selected={unit || null}
+                onSelect={u => setUnit(u ?? '')}
+                inset={lg ? { left: 0.42, right: 0.19, top: 0.1, bottom: 0.1 } : { left: 0.07, right: 0.07, top: 0.12, bottom: 0.08 }}
+                ariaLabel={`Link graph of ${pop.data.by_unit.length} units. Equivalent figures are in the unit table below.`}
+              />
+            )}
+            {pop.loading && !pop.data && <div className="absolute inset-0 flex items-center justify-center"><Loading label="Reading record" /></div>}
+          </div>
+
+          <div className="boot relative z-10 mt-4 lg:absolute lg:bottom-6 lg:right-0 lg:mt-0 lg:w-[240px]" style={{ ['--i' as string]: 5 }} aria-label="Live figures">
+            <div className="lg:bg-black/50 lg:py-2 lg:pl-3">
+              <Tele k="API" v={pop.error ? 'ERROR' : pop.loading ? 'READING' : 'CONNECTED'} />
+              <Tele k="Officers" v={sum ? n0(sum.officers) : '—'} />
+              <Tele k="Comparisons" v={sum ? n0(sum.comparisons) : '—'} />
+              <Tele k="Cross-unit" v={sum ? pct(sum.cross_unit_share) : '—'} s={sum ? n0(sum.cross_unit_comparisons) : undefined} />
+              <Tele k="Can't judge" v={sum ? n0(sum.cant_judge) : '—'} />
+              <Tele k="Window" v={win} s={track} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Filter bar */}
+      <div className="-mx-4 !mt-0 border-b border-line bg-black px-4 py-4 sm:-mx-8 sm:px-8 lg:sticky lg:top-[87px] lg:z-30" role="group" aria-label="Filters">
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+          <div>
+            <span className="tele mb-1 block">Track</span>
+            <div className="seg">
+              {(['performance', 'potential'] as Track[]).map(t => (
+                <button key={t} aria-pressed={track === t} onClick={() => setTrack(t)}>{t}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <span className="tele mb-1 block">Band</span>
+            <div className="seg">
+              {(filters.data?.bands.map(b => b.band) ?? ['tactical', 'operational', 'strategic']).map(b => (
+                <button key={b} aria-pressed={band === b} onClick={() => setBand(b)}>{b}</button>
+              ))}
+              <button aria-pressed={allBands} onClick={() => setBand(ALL)}>All bands</button>
+            </div>
+          </div>
+          <Select label="Unit" value={unit} onChange={setUnit}>
+            <option value="">All units</option>
+            {(filters.data?.units ?? []).map(u => <option key={u} value={u}>{u}</option>)}
+          </Select>
+          <Select label="From quarter" value={qFrom} onChange={setQFrom}>
+            <option value="">First</option>
+            {quarters.filter(x => !qTo || x <= Number(qTo)).map(x => <option key={x} value={x}>Q{x}</option>)}
+          </Select>
+          <Select label="To quarter" value={qTo} onChange={setQTo}>
+            <option value="">Last</option>
+            {quarters.filter(x => !qFrom || x >= Number(qFrom)).map(x => <option key={x} value={x}>Q{x}</option>)}
+          </Select>
+          {(unit || qFrom || qTo) && (
+            <button className="pill-ghost !py-1.5" onClick={() => { setUnit(''); setQFrom(''); setQTo('') }}>Clear</button>
+          )}
+        </div>
+        {track === 'potential' && (
+          <p className="mt-3 border-l-2 border-amber pl-3 text-[13px] text-t2">
+            <span className="font-mono text-[11px] uppercase tracking-tele text-amber">[Seed script]</span>{' '}
+            These potential answers are generated by the seed script, not the simulation. {potentialNote.replace(/^Potential answers are generated by seed_demo\.py, not the simulation:\s*/, 'Detail: ')}
+          </p>
+        )}
       </div>
 
-      {/* Stats Cards */}
-      {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="card text-center">
-            <Users className="h-8 w-8 text-military-green mx-auto mb-2" />
-            <div className="text-2xl font-bold font-mono text-military-light">
-              {stats.total_personnel}
-            </div>
-            <div className="text-military-muted text-sm">Active Personnel</div>
-          </div>
+      {pop.error && <ErrorRetry message={pop.error} onRetry={pop.retry} />}
+      {scoped.error && <ErrorRetry message={scoped.error} onRetry={scoped.retry} label={`Could not load ${unit}`} />}
 
-          <div className="card text-center">
-            <Target className="h-8 w-8 text-military-amber mx-auto mb-2" />
-            <div className="text-2xl font-bold font-mono text-military-light">
-              {stats.total_ratings}
-            </div>
-            <div className="text-military-muted text-sm">Total Ratings</div>
-          </div>
+      {pop.data && sum && sum.comparisons === 0 && (
+        <p className="border border-line p-6 text-t2">
+          No comparisons have been recorded for this cut. Widen the quarter window, switch track, or start a round on the Rate page.
+        </p>
+      )}
 
-          <div className="card text-center">
-            <TrendingUp className="h-8 w-8 text-military-green mx-auto mb-2" />
-            <div className="text-2xl font-bold font-mono text-military-light">
-              {formatElo(Math.round(stats.avg_elo))}
-            </div>
-            <div className="text-military-muted text-sm">Average ELO</div>
-          </div>
-
-          <div className="card text-center">
-            <Trophy className="h-8 w-8 text-military-amber mx-auto mb-2" />
-            <div className="text-2xl font-bold font-mono text-military-light">
-              {formatElo(stats.highest_elo)}
-            </div>
-            <div className="text-military-muted text-sm">Highest ELO</div>
-          </div>
+      {shown && !allBands && (
+        <Section
+          title="Rating spread by quarter"
+          aside={`${unit ? unit + ', ' : ''}${band} band, ${track}. Ratings start equal and spread as comparisons accumulate.`}
+        >
+          <SpreadChart rows={shown.by_quarter} />
+        </Section>
+      )}
+      {shown && allBands && (
+        <div className="border border-line p-5">
+          <p className="tele-strong">Rating spread and leaderboard: [HIDDEN]</p>
+          <p className="mt-2 text-sm text-t2">
+            Ratings compare only within a band, so with all bands selected the API returns no rating figures and an empty leaderboard. Pick a band to see them.
+          </p>
         </div>
       )}
 
-      {/* ELO Progression Chart */}
-      <EloChart data={eloData} />
-
-      {/* Action Buttons */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-center">
-        <Link href="/rate" className="btn-primary text-center py-4 px-8 text-lg">
-          <Target className="h-6 w-6 inline mr-2" />
-          Start Rating Session
-        </Link>
-        <Link href="/personnel" className="btn-secondary text-center py-4 px-8 text-lg">
-          <Users className="h-6 w-6 inline mr-2" />
-          Manage Personnel
-        </Link>
-      </div>
-
-      {/* Current Leaderboard */}
-      {personnel.length > 0 && (
-        <div className="card">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold font-mono text-military-light mb-2">
-              CURRENT LEADERBOARD
-            </h2>
-            <p className="text-military-muted">Top performers by ELO rating</p>
-          </div>
-
+      {shown && (
+        <Section title="By band" aside="Rating figures are within each band. Bands are never ranked against each other.">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-military-gray">
-                  <th className="text-left py-3 px-2 font-mono text-military-muted">RANK</th>
-                  <th className="text-left py-3 px-2 font-mono text-military-muted">NAME</th>
-                  <th className="text-left py-3 px-2 font-mono text-military-muted">POSITION</th>
-                  <th className="text-right py-3 px-2 font-mono text-military-muted">ELO</th>
-                  <th className="text-right py-3 px-2 font-mono text-military-muted">CHANGE</th>
-                </tr>
-              </thead>
+            <table className="w-full min-w-[560px]">
+              <thead><tr>
+                <th className="th">Band</th><th className="th num">Officers</th><th className="th num">Mean</th><th className="th num">SD</th>
+                <th className="th num">p10</th><th className="th num">Median</th><th className="th num !pr-0">p90</th>
+              </tr></thead>
               <tbody>
-                {personnel.slice(0, 10).map((person, index) => (
-                  <tr key={person.id} className="table-row">
-                    <td className="py-3 px-2">
-                      <div className="flex items-center">
-                        {index === 0 && (
-                          <Trophy className="h-4 w-4 text-military-amber mr-2" />
-                        )}
-                        <span className="font-mono font-bold">
-                          #{index + 1}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-2 font-medium">{person.name}</td>
-                    <td className="py-3 px-2 text-military-muted font-mono">
-                      {person.rank}
-                    </td>
-                    <td className="py-3 px-2 text-right font-mono font-bold">
-                      {formatElo(person.current_elo)}
-                    </td>
-                    <td className={`py-3 px-2 text-right font-mono font-bold ${getEloChangeColor(person.current_elo, person.initial_elo)}`}>
-                      {getEloChangeText(person.current_elo, person.initial_elo)}
-                    </td>
+                {shown.by_band.map(b => (
+                  <tr key={b.band} className="border-t border-line">
+                    <td className="td">{cap(b.band)}</td>
+                    <td className="td num">{n0(b.officers)}</td><td className="td num">{n0(b.mean)}</td><td className="td num">{n1(b.sd)}</td>
+                    <td className="td num">{n0(b.p10)}</td><td className="td num">{n0(b.p50)}</td><td className="td num !pr-0">{n0(b.p90)}</td>
                   </tr>
                 ))}
+                {shown.by_band.length === 0 && <tr><td className="td text-t3" colSpan={7}>No rated officers in this cut.</td></tr>}
               </tbody>
             </table>
           </div>
-        </div>
+        </Section>
       )}
 
-      {personnel.length === 0 && (
-        <div className="card text-center">
-          <Users className="h-12 w-12 text-military-muted mx-auto mb-4" />
-          <h3 className="text-xl font-bold font-mono text-military-light mb-2">
-            NO PERSONNEL REGISTERED
-          </h3>
-          <p className="text-military-muted mb-4">
-            Add personnel to begin conducting performance evaluations
-          </p>
-          <Link href="/personnel" className="btn-primary">
-            Add Personnel
-          </Link>
-        </div>
+      {pop.data && (
+        <Section
+          title="Units by change in cross-unit win rate"
+          aside="Share of cross-unit comparisons won, late window minus early. The bar spans two standard errors; cyan or red means it clears zero."
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px]">
+              <thead><tr>
+                <th className="th">Unit</th><th className="th num">Officers</th><th className="th num">Comparisons</th><th className="th num">Cross-unit</th>
+                <th className="th num">Win rate</th><th className="th num">Change, pts &plusmn; 2 SE</th><th className="th !pr-0">Interval</th>
+              </tr></thead>
+              <tbody>
+                {units.map(u => {
+                  const on = unit === u.unit
+                  return (
+                    <tr key={u.unit} className={`border-t border-line ${on ? 'bg-white/[0.06]' : ''}`}>
+                      <td className="td">
+                        <button className="font-mono hover:underline" aria-pressed={on} onClick={() => setUnit(on ? '' : u.unit)}>{u.unit}</button>
+                      </td>
+                      <td className="td num">{n0(u.officers)}</td>
+                      <td className="td num">{n0(u.comparisons)}</td>
+                      <td className="td num">{n0(u.cross_n)}</td>
+                      <td className="td num">{pct(u.cross_win_rate)}</td>
+                      <td className="td num">
+                        {u.cross_win_rate_change == null ? '—' : `${signed(u.cross_win_rate_change * 100, 1)} ± ${n1((u.cross_win_rate_change_se ?? 0) * 200)}`}
+                      </td>
+                      <td className="td !pr-0"><ChangeBar u={u} domain={domain} /></td>
+                    </tr>
+                  )
+                })}
+                {units.length === 0 && <tr><td className="td text-t3" colSpan={7}>No units in this cut.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Section>
       )}
+
+      {shown && !allBands && (
+        <Section title="Leaderboard" aside={`Top ${shown.leaderboard.length || 10} in the ${band} band${unit ? `, ${unit}` : ''}. Rating is the running ${track} Elo.`}>
+          <Leaderboard rows={shown.leaderboard} />
+        </Section>
+      )}
+
+      {small && (
+        <Section title="Rating history" aside={`${stats.data?.total_personnel} active personnel, so every officer's line is drawn.`}>
+          <EloChart data={elo.data ?? []} />
+        </Section>
+      )}
+    </div>
+  )
+}
+
+function Leaderboard({ rows }: { rows: Leader[] }) {
+  if (rows.length === 0) return <p className="tele py-6">No rated officers in this cut.</p>
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[640px]">
+        <thead><tr>
+          <th className="th">#</th><th className="th">Name</th><th className="th">Rank</th><th className="th">Unit</th>
+          <th className="th num">Rating</th><th className="th num">Change</th><th className="th num">Comparisons</th><th className="th num !pr-0">W / L / D</th>
+        </tr></thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.id} className="border-t border-line">
+              <td className="td font-mono text-t3">{i + 1}</td>
+              <td className="td">{r.name}</td>
+              <td className="td font-mono text-t2">{r.rank}</td>
+              <td className="td font-mono text-t2">{r.unit}</td>
+              <td className="td num">{n0(r.rating)}</td>
+              <td className="td num text-t2">{signed(r.change)}</td>
+              <td className="td num">{n0(r.comparisons)}</td>
+              <td className="td num !pr-0">{r.wins} / {r.losses} / {r.draws}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

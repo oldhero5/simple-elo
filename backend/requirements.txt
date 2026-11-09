@@ -4,3 +4,4 @@ fastapi-cors==0.0.6
 pydantic==2.5.0
 python-multipart==0.0.6
 uvicorn[standard]==0.24.0
+numpy==1.26.4

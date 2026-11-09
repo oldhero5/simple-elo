@@ -1,402 +1,175 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { ArrowLeft, Users, Edit, Trash2, UserX, RotateCcw, AlertTriangle } from 'lucide-react'
-import PersonnelForm from '@/components/PersonnelForm'
+import { useEffect, useMemo, useState } from 'react'
+import { Check, Pencil, RotateCw, Trash2, X } from 'lucide-react'
+import { Filters, Personnel, cap, n0, sendJson, signed, useApi } from '@/lib/api'
+import PersonnelForm, { RANKS } from '@/components/PersonnelForm'
+import { ErrorRetry, Loading, PageHead } from '@/components/ui'
 
-interface Personnel {
-  id: number
-  name: string
-  rank: string
-  current_elo: number
-  initial_elo: number
-  created_at: string
-  active: boolean
-}
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const MAX_ROWS = 200
 
 export default function PersonnelPage() {
-  const [personnel, setPersonnel] = useState<Personnel[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
-  const [editingPersonnel, setEditingPersonnel] = useState<Personnel | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', rank: '' })
+  const [band, setBand] = useState('')
+  const [unit, setUnit] = useState('')
+  const [editing, setEditing] = useState<number | null>(null)
+  const [draft, setDraft] = useState({ name: '', rank: 'CPT', unit: '' })
+  const [confirm, setConfirm] = useState<number | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const filters = useApi<Filters>('/api/filters')
 
-  useEffect(() => {
-    fetchPersonnel()
-  }, [])
+  const q = new URLSearchParams({ active_only: 'false' })
+  if (band) q.set('band', band)
+  if (unit) q.set('unit', unit)
+  const list = useApi<Personnel[]>(`/api/personnel?${q}`)
+  // refetch after a write by bumping retry
+  const reload = list.retry
 
-  const fetchPersonnel = async () => {
+  const [rows, setRows] = useState<Personnel[]>([])
+  useEffect(() => { if (list.data) setRows(list.data) }, [list.data])
+  const shown = useMemo(() => rows.slice(0, MAX_ROWS), [rows])
+  const active = rows.filter(p => p.active).length
+
+  const add = async (name: string, rank: string, u: string) => {
+    await sendJson('/api/personnel', 'POST', { name, rank, unit: u, initial_elo: 1000 })
+    reload()
+  }
+  const save = async (id: number) => {
+    setActionError(null)
     try {
-      setLoading(true)
-      setError(null)
-
-      const response = await fetch(`${API_URL}/api/personnel?active_only=false`)
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch personnel')
-      }
-
-      const data = await response.json()
-      setPersonnel(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
-    } finally {
-      setLoading(false)
-    }
+      await sendJson(`/api/personnel/${id}`, 'PUT', { name: draft.name.trim(), rank: draft.rank, unit: draft.unit.trim() || 'UNASSIGNED' })
+      setEditing(null)
+      reload()
+    } catch (e) { setActionError(e instanceof Error ? e.message : 'Could not save') }
   }
-
-  const handleAddPersonnel = async (name: string, rank: string) => {
+  const remove = async (id: number) => {
+    setActionError(null)
     try {
-      const response = await fetch(`${API_URL}/api/personnel`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name,
-          rank,
-          initial_elo: 1000
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Failed to add personnel')
-      }
-
-      await fetchPersonnel()
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Failed to add personnel')
-    }
+      await sendJson(`/api/personnel/${id}`, 'DELETE')
+      setConfirm(null)
+      reload()
+    } catch (e) { setActionError(e instanceof Error ? e.message : 'Could not delete') }
   }
 
-  const handleDeletePersonnel = async (id: number) => {
-    try {
-      const response = await fetch(`${API_URL}/api/personnel/${id}`, {
-        method: 'DELETE',
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to delete personnel')
-      }
-
-      setDeleteConfirm(null)
-      await fetchPersonnel()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete personnel')
-    }
-  }
-
-  const handleEditPersonnel = async (id: number, name: string, rank: string) => {
-    try {
-      const response = await fetch(`${API_URL}/api/personnel/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          rank
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Failed to update personnel')
-      }
-
-      setEditingPersonnel(null)
-      setEditForm({ name: '', rank: '' })
-      await fetchPersonnel()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update personnel')
-    }
-  }
-
-  const startEdit = (person: Personnel) => {
-    setEditingPersonnel(person)
-    setEditForm({ name: person.name, rank: person.rank })
-  }
-
-  const cancelEdit = () => {
-    setEditingPersonnel(null)
-    setEditForm({ name: '', rank: '' })
-  }
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    })
-  }
-
-  const formatEloChange = (current: number, initial: number) => {
-    const change = current - initial
-    if (change > 0) return `+${change}`
-    if (change < 0) return change.toString()
-    return '±0'
-  }
-
-  const getEloChangeColor = (current: number, initial: number) => {
-    const change = current - initial
-    if (change > 0) return 'text-military-green'
-    if (change < 0) return 'text-military-red'
-    return 'text-military-muted'
-  }
-
-  if (loading) {
-    return (
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center">
-          <Users className="h-12 w-12 text-military-green mx-auto mb-4 animate-pulse" />
-          <h1 className="text-3xl font-bold font-mono text-military-light mb-2">
-            LOADING PERSONNEL...
-          </h1>
-          <p className="text-military-muted">Retrieving personnel database</p>
-        </div>
-      </div>
-    )
-  }
+  const bandOptions = [...(filters.data?.bands.map(b => b.band) ?? []), 'unbanded']
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold font-mono text-military-light mb-2">
-            PERSONNEL MANAGEMENT
-          </h1>
-          <p className="text-military-muted">Manage personnel registry and ratings</p>
-        </div>
-        <Link href="/" className="btn-secondary">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Dashboard
-        </Link>
-      </div>
+    <div className="space-y-10">
+      <PageHead title="Personnel." sub="Everyone who can be paired. Each person carries a performance rating and a potential rating, kept separately." />
 
-      {/* Error Display */}
-      {error && (
-        <div className="card bg-military-red/10 border-military-red">
-          <div className="flex items-center">
-            <AlertTriangle className="h-5 w-5 text-military-red mr-3" />
-            <span className="text-military-red font-medium">{error}</span>
-            <button
-              onClick={() => setError(null)}
-              className="ml-auto text-military-red hover:text-red-400"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      )}
+      <PersonnelForm onSubmit={add} units={filters.data?.units ?? []} loading={list.loading && !list.data} />
 
-      {/* Add Personnel Form */}
-      <PersonnelForm onSubmit={handleAddPersonnel} loading={loading} />
+      {actionError && <ErrorRetry message={actionError} onRetry={() => setActionError(null)} label="Change not saved" />}
 
-      {/* Personnel List */}
-      <div className="card">
-        <div className="mb-6 flex items-center justify-between">
+      <section aria-labelledby="roster-h">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-4 border-t border-line pt-6">
           <div>
-            <h2 className="text-2xl font-bold font-mono text-military-light mb-2">
-              PERSONNEL ROSTER
-            </h2>
-            <p className="text-military-muted">
-              {personnel.filter(p => p.active).length} active personnel
-              {personnel.filter(p => !p.active).length > 0 &&
-                ` • ${personnel.filter(p => !p.active).length} inactive`
-              }
+            <h2 id="roster-h" className="display text-2xl sm:text-3xl">Roster</h2>
+            <p className="tele mt-2" aria-live="polite">
+              {list.data ? `Showing ${n0(shown.length)} of ${n0(rows.length)}${rows.length - active > 0 ? `, ${n0(rows.length - active)} inactive` : ''}` : 'Loading'}
+              {rows.length > MAX_ROWS && ' [capped at 200, narrow with the filters]'}
             </p>
           </div>
-          <button
-            onClick={fetchPersonnel}
-            className="btn-secondary"
-            disabled={loading}
-          >
-            <RotateCcw className="h-4 w-4 mr-2" />
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="block">
+              <span className="tele mb-1 block">Band</span>
+              <select className="field !w-auto min-w-[120px] font-mono text-[13px]" value={band} onChange={e => setBand(e.target.value)}>
+                <option value="">All bands</option>
+                {bandOptions.map(b => <option key={b} value={b}>{cap(b)}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="tele mb-1 block">Unit</span>
+              <select className="field !w-auto min-w-[100px] font-mono text-[13px]" value={unit} onChange={e => setUnit(e.target.value)}>
+                <option value="">All units</option>
+                {(filters.data?.units ?? []).map(u => <option key={u}>{u}</option>)}
+                <option value="UNASSIGNED">UNASSIGNED</option>
+              </select>
+            </label>
+            <button className="pill-ghost !py-2" onClick={reload} disabled={list.loading}><RotateCw className="h-3.5 w-3.5" aria-hidden /> Refresh</button>
+          </div>
         </div>
 
-        {personnel.length === 0 ? (
-          <div className="text-center py-12">
-            <Users className="h-12 w-12 text-military-muted mx-auto mb-4" />
-            <h3 className="text-xl font-bold font-mono text-military-light mb-2">
-              NO PERSONNEL REGISTERED
-            </h3>
-            <p className="text-military-muted">
-              Add personnel using the form above to begin evaluations
+        {list.error && <ErrorRetry message={list.error} onRetry={list.retry} label="Could not load personnel" />}
+        {list.loading && !list.data && <Loading label="Reading roster" />}
+
+        {list.data && rows.length === 0 && (
+          <div className="border border-line p-8">
+            <p className="display text-2xl">No one here yet.</p>
+            <p className="mt-2 max-w-md text-sm text-t2">
+              {band || unit ? 'Nobody matches these filters. Clear them to see everyone.' : 'Add at least two people above, then start a round on the Rate page.'}
             </p>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+        )}
+
+        {rows.length > 0 && (
+          <div className={`overflow-x-auto transition-opacity ${list.loading ? 'opacity-50' : ''}`}>
+            <table className="w-full min-w-[860px]">
               <thead>
-                <tr className="border-b border-military-gray">
-                  <th className="text-left py-3 px-2 font-mono text-military-muted">NAME</th>
-                  <th className="text-left py-3 px-2 font-mono text-military-muted">RANK</th>
-                  <th className="text-right py-3 px-2 font-mono text-military-muted">ELO</th>
-                  <th className="text-right py-3 px-2 font-mono text-military-muted">CHANGE</th>
-                  <th className="text-center py-3 px-2 font-mono text-military-muted">ADDED</th>
-                  <th className="text-center py-3 px-2 font-mono text-military-muted">STATUS</th>
-                  <th className="text-center py-3 px-2 font-mono text-military-muted">ACTIONS</th>
+                <tr>
+                  <th className="th">Name</th>
+                  <th className="th">Rank</th>
+                  <th className="th">Unit</th>
+                  <th className="th">Band</th>
+                  <th className="th num">Performance</th>
+                  <th className="th num">Potential</th>
+                  <th className="th">Status</th>
+                  <th className="th !pr-0 text-right">Actions</th>
+                </tr>
+                <tr>
+                  <td colSpan={8} className="pb-2 text-[12px] text-t3">Enlisted ranks sit in a separate unbanded pool and are never rated against officers.</td>
                 </tr>
               </thead>
               <tbody>
-                {personnel.map((person) => (
-                  <tr key={person.id} className="table-row">
-                    <td className="py-3 px-2">
-                      {editingPersonnel?.id === person.id ? (
-                        <input
-                          type="text"
-                          value={editForm.name}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
-                          className="input-field w-full text-sm"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              handleEditPersonnel(person.id, editForm.name, editForm.rank)
-                            } else if (e.key === 'Escape') {
-                              cancelEdit()
-                            }
-                          }}
-                        />
-                      ) : (
-                        <span className={`font-medium ${!person.active ? 'text-military-muted line-through' : ''}`}>
-                          {person.name}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-2">
-                      {editingPersonnel?.id === person.id ? (
-                        <select
-                          value={editForm.rank}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, rank: e.target.value }))}
-                          className="input-field w-full text-sm"
-                        >
-                          <option value="PVT">PVT</option>
-                          <option value="PFC">PFC</option>
-                          <option value="SPC">SPC</option>
-                          <option value="CPL">CPL</option>
-                          <option value="SGT">SGT</option>
-                          <option value="SSG">SSG</option>
-                          <option value="SFC">SFC</option>
-                          <option value="MSG">MSG</option>
-                          <option value="SGM">SGM</option>
-                          <option value="2LT">2LT</option>
-                          <option value="1LT">1LT</option>
-                          <option value="CPT">CPT</option>
-                          <option value="MAJ">MAJ</option>
-                          <option value="LTC">LTC</option>
-                          <option value="COL">COL</option>
-                          <option value="BG">BG</option>
-                          <option value="MG">MG</option>
-                          <option value="LTG">LTG</option>
-                          <option value="GEN">GEN</option>
-                        </select>
-                      ) : (
-                        <span className="font-mono text-military-muted">
-                          {person.rank}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-2 text-right font-mono font-bold">
-                      {person.current_elo.toLocaleString()}
-                    </td>
-                    <td className={`py-3 px-2 text-right font-mono font-bold ${getEloChangeColor(person.current_elo, person.initial_elo)}`}>
-                      {formatEloChange(person.current_elo, person.initial_elo)}
-                    </td>
-                    <td className="py-3 px-2 text-center text-military-muted text-sm font-mono">
-                      {formatDate(person.created_at)}
-                    </td>
-                    <td className="py-3 px-2 text-center">
-                      {person.active ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-mono bg-military-green/20 text-military-green">
-                          ACTIVE
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-mono bg-military-red/20 text-military-red">
-                          <UserX className="h-3 w-3 mr-1" />
-                          INACTIVE
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-2 text-center">
-                      {editingPersonnel?.id === person.id ? (
-                        <div className="flex items-center justify-center space-x-2">
-                          <button
-                            onClick={() => handleEditPersonnel(person.id, editForm.name, editForm.rank)}
-                            className="text-military-green hover:text-green-400 p-1"
-                            title="Save changes"
-                          >
-                            ✓
-                          </button>
-                          <button
-                            onClick={cancelEdit}
-                            className="text-military-red hover:text-red-400 p-1"
-                            title="Cancel"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center space-x-2">
-                          <button
-                            onClick={() => startEdit(person)}
-                            className="text-military-muted hover:text-military-light p-1"
-                            title="Edit personnel"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                          {deleteConfirm === person.id ? (
-                            <div className="flex items-center space-x-1">
-                              <button
-                                onClick={() => handleDeletePersonnel(person.id)}
-                                className="text-military-red hover:text-red-400 p-1 text-xs"
-                                title="Confirm delete"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                onClick={() => setDeleteConfirm(null)}
-                                className="text-military-muted hover:text-military-light p-1 text-xs"
-                                title="Cancel"
-                              >
-                                ✕
-                              </button>
-                            </div>
+                {shown.map(p => {
+                  const ed = editing === p.id
+                  return (
+                    <tr key={p.id} className="border-t border-line">
+                      <td className="td">
+                        {ed ? <input className="field !py-1" aria-label="Name" value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') save(p.id); if (e.key === 'Escape') setEditing(null) }} />
+                          : <span className={p.active ? '' : 'text-t3 line-through'}>{p.name}</span>}
+                      </td>
+                      <td className="td font-mono text-t2">
+                        {ed ? (
+                          <select className="field !py-1" aria-label="Rank" value={draft.rank} onChange={e => setDraft(d => ({ ...d, rank: e.target.value }))}>
+                            {Object.entries(RANKS).map(([g, rs]) => <optgroup key={g} label={g}>{rs.map(r => <option key={r}>{r}</option>)}</optgroup>)}
+                          </select>
+                        ) : p.rank}
+                      </td>
+                      <td className="td font-mono text-t2">
+                        {ed ? <input className="field !py-1" aria-label="Unit" value={draft.unit} onChange={e => setDraft(d => ({ ...d, unit: e.target.value }))} /> : p.unit}
+                      </td>
+                      <td className="td font-mono text-t2">{p.band}</td>
+                      <td className="td num">{n0(p.current_elo)} <span className="text-t3">{signed(p.current_elo - p.initial_elo)}</span></td>
+                      <td className="td num">{n0(p.current_potential)}</td>
+                      <td className="td font-mono text-[11px] uppercase tracking-tele">{p.active ? <span className="text-t2">Active</span> : <span className="text-alert">[Inactive]</span>}</td>
+                      <td className="td !pr-0">
+                        <div className="flex justify-end gap-1">
+                          {ed ? (
+                            <>
+                              <button className="p-2 text-t1 hover:bg-white/10" onClick={() => save(p.id)} aria-label={`Save ${p.name}`}><Check className="h-4 w-4" /></button>
+                              <button className="p-2 text-t2 hover:bg-white/10" onClick={() => setEditing(null)} aria-label="Cancel edit"><X className="h-4 w-4" /></button>
+                            </>
+                          ) : confirm === p.id ? (
+                            <>
+                              <button className="px-2 font-mono text-[11px] uppercase tracking-tele text-alert hover:bg-alert/10" onClick={() => remove(p.id)}>Delete?</button>
+                              <button className="p-2 text-t2 hover:bg-white/10" onClick={() => setConfirm(null)} aria-label="Cancel delete"><X className="h-4 w-4" /></button>
+                            </>
                           ) : (
-                            <button
-                              onClick={() => setDeleteConfirm(person.id)}
-                              className="text-military-muted hover:text-military-red p-1"
-                              title="Delete personnel"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            <>
+                              <button className="p-2 text-t2 hover:bg-white/10 hover:text-t1" onClick={() => { setEditing(p.id); setDraft({ name: p.name, rank: p.rank, unit: p.unit }) }} aria-label={`Edit ${p.name}`}><Pencil className="h-4 w-4" /></button>
+                              <button className="p-2 text-t2 hover:bg-white/10 hover:text-alert" onClick={() => setConfirm(p.id)} aria-label={`Delete ${p.name}`}><Trash2 className="h-4 w-4" /></button>
+                            </>
                           )}
                         </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
-      </div>
-
-      {/* Quick Actions */}
-      {personnel.filter(p => p.active).length >= 2 && (
-        <div className="text-center">
-          <Link href="/rate" className="btn-primary inline-flex items-center py-3 px-6 text-lg">
-            <Users className="h-5 w-5 mr-2" />
-            Start Rating Session
-          </Link>
-        </div>
-      )}
+      </section>
     </div>
   )
 }
