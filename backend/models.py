@@ -28,9 +28,27 @@ MAX_QUARTER = 400
 MAX_SEED = 2**32 - 1
 
 
-def _no_control_characters(value: str) -> str:
-    if any(unicodedata.category(c).startswith("C") for c in value):
-        raise ValueError("must not contain control characters")
+# Bidirectional embeddings, overrides and isolates: they can make a name
+# display as something else ("Trojan Source").
+_BIDI_CONTROLS = frozenset(map(chr, [*range(0x202A, 0x202F), *range(0x2066, 0x206A)]))
+
+
+def _printable_text(value: str) -> str:
+    """NFC-normalise, then refuse characters that break or disguise a line.
+
+    Refused: control characters (Cc: NUL, tab, newline, DEL...), the line and
+    paragraph separators (Zl, Zp), bidi controls and lone surrogates (Cs).
+    Allowed: other format characters (Cf) that real names need, such as the
+    zero-width non-joiner in Persian names, the zero-width joiner in emoji and
+    the soft hyphen, and code points newer than this Python's Unicode (Cn).
+    """
+    value = unicodedata.normalize("NFC", value)
+    for c in value:
+        if unicodedata.category(c) in ("Cc", "Zl", "Zp", "Cs") or c in _BIDI_CONTROLS:
+            raise ValueError(
+                "must not contain control characters, line breaks or "
+                "text-direction overrides"
+            )
     return value
 
 
@@ -39,7 +57,7 @@ def _text(max_length: int):
     return Annotated[
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=max_length),
-        AfterValidator(_no_control_characters),
+        AfterValidator(_printable_text),
     ]
 
 

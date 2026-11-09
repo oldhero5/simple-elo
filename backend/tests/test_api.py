@@ -706,3 +706,114 @@ def test_body_less_writes_still_need_json_content_type(client):
     person = add(client, "Leaving")
     # DELETE is exempt: browsers cannot send one cross-site without a preflight.
     assert client.delete(f"/api/personnel/{person['id']}").status_code == 200
+
+
+def test_null_columns_written_while_running_break_no_read(client, database):
+    people = add_pool(client, n=6)
+    elo_null, rest_null = people[0]["id"], people[1]["id"]
+    with duckdb.connect(database.db_path) as conn:
+        conn.execute(
+            "UPDATE personnel SET initial_elo = NULL, current_elo = NULL,"
+            " current_potential = NULL WHERE id = ?",
+            (elo_null,),
+        )
+        conn.execute(
+            "UPDATE personnel SET unit = NULL, band = NULL, created_at = NULL,"
+            " active = NULL, synthetic = NULL WHERE id = ?",
+            (rest_null,),
+        )
+
+    reads = [
+        "/api/personnel",
+        "/api/personnel?active_only=false",
+        f"/api/personnel/{elo_null}",
+        f"/api/personnel/{rest_null}",
+        "/api/leaderboard",
+        "/api/stats",
+        "/api/filters",
+        "/api/population",
+        "/api/population?band=tactical",
+        "/api/elo-progression",
+    ]
+    for url in reads:
+        assert client.get(url).status_code == 200, url
+    shown = {p["id"]: p for p in client.get("/api/personnel?active_only=false").json()}
+    assert shown[elo_null]["current_elo"] == 1000
+    assert shown[rest_null]["unit"] == "UNASSIGNED"
+    assert shown[rest_null]["active"] is True
+
+    round_ = start(client, comparisons_per_officer=2)
+    for _ in range(round_["total_matchups"]):
+        pair = client.get("/api/comparison/full")
+        if pair.status_code == 404:
+            break
+        pair = pair.json()
+        assert answer(client, pair, pair["person_a"]["id"]).status_code == 200
+    for url in reads + ["/api/replay?band=tactical&shuffles=5", "/api/history"]:
+        assert client.get(url).status_code == 200, url
+    response = client.put(f"/api/personnel/{elo_null}", json={"name": "Renamed"})
+    assert response.status_code == 200
+    for person in (elo_null, rest_null):
+        assert client.delete(f"/api/personnel/{person}").status_code == 200
+
+
+def test_startup_fills_every_nullable_personnel_column(tmp_path):
+    path = str(tmp_path / "nulls.db")
+    Database(path)
+    with duckdb.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO personnel (name, rank, unit, band, initial_elo, current_elo,"
+            " current_potential, created_at, active, synthetic) VALUES"
+            " ('Null', 'CPT', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)"
+        )
+    Database(path)
+    with duckdb.connect(path) as conn:
+        row = conn.execute(
+            "SELECT unit, band, initial_elo, current_elo, current_potential,"
+            " created_at IS NOT NULL, active, synthetic FROM personnel"
+        ).fetchone()
+    assert row == ("UNASSIGNED", "tactical", 1000, 1000, 1000, True, True, False)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "مه‌سا",  # Persian, zero-width non-joiner
+        "Dev \U0001F469‍\U0001F4BB",  # emoji ZWJ sequence
+        "Jo­hannes",  # soft hyphen
+        "New \U0001FAF7",  # newer than Python 3.11's Unicode 14 (Cn there)
+        "O'Brien-Smith",
+    ],
+)
+def test_real_names_are_accepted(client, name):
+    response = client.post("/api/personnel", json={"name": name, "rank": "CPT"})
+    assert response.status_code == 200, response.text
+    assert response.json()["name"] == name
+
+
+def test_names_are_nfc_normalised(client):
+    person = add(client, "José")
+    assert person["name"] == "José"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "a b",  # line separator
+        "a b",  # paragraph separator
+        "abc‮dcba",  # right-to-left override
+        "a⁦b⁩",  # left-to-right isolate
+        "a\x7fb",  # DEL
+        "a\nb",
+    ],
+)
+def test_line_breaking_and_disguising_characters_are_refused(client, name):
+    response = client.post("/api/personnel", json={"name": name, "rank": "CPT"})
+    assert response.status_code == 422
+    assert "text-direction" in response.text
+
+
+def test_lone_surrogates_are_refused(client):
+    body = '{"name": "a\\ud800b", "rank": "CPT"}'
+    response = client.post("/api/personnel", content=body, headers=JSON)
+    assert response.status_code == 422

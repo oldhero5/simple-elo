@@ -37,14 +37,15 @@ def get_filters(db: Database) -> dict:
         bands = dict_rows(
             conn.execute(
                 """
-                SELECT band, count(*) AS officers FROM personnel
-                WHERE active = TRUE GROUP BY band ORDER BY officers DESC
+                SELECT coalesce(band, 'unbanded') AS band, count(*) AS officers
+                FROM personnel
+                WHERE coalesce(active, TRUE) GROUP BY 1 ORDER BY officers DESC
                 """
             )
         )
         units = conn.execute(
             """
-            SELECT unit FROM personnel UNION
+            SELECT coalesce(unit, 'UNASSIGNED') FROM personnel UNION
             SELECT unit_a FROM ratings UNION SELECT unit_b FROM ratings
             ORDER BY 1
             """
@@ -329,7 +330,9 @@ def get_replay(
         people = dict_rows(
             conn.execute(
                 """
-                SELECT id, name, rank, unit, initial_elo FROM personnel
+                SELECT id, name, rank, coalesce(unit, 'UNASSIGNED') AS unit,
+                       coalesce(initial_elo, 1000) AS initial_elo
+                FROM personnel
                 WHERE id IN (
                     SELECT ratee_a_id FROM ratings WHERE track = ? AND band = ?
                     UNION

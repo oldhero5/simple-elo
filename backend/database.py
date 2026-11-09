@@ -35,9 +35,39 @@ QUESTIONS = {
     "potential": "Who has the greater potential to serve at the next level?",
 }
 
-PERSONNEL_COLUMNS = (
-    "id, name, rank, unit, band, initial_elo, current_elo, current_potential, "
-    "created_at, active, synthetic"
+# Every optional column read with its default. The migration fills NULLs on
+# start, but a NULL written while running (by hand, or by an older build) must
+# not break every roster, stats and round read until the next restart.
+PERSONNEL_DEFAULTS = {
+    "unit": "'UNASSIGNED'",
+    "band": "'unbanded'",
+    "initial_elo": "1000",
+    "current_elo": "coalesce(initial_elo, 1000)",
+    "current_potential": "coalesce(initial_elo, 1000)",
+    "created_at": "TIMESTAMP '1970-01-01 00:00:00'",
+    "active": "TRUE",
+    "synthetic": "FALSE",
+}
+
+ACTIVE = "coalesce(active, TRUE)"
+
+
+def _with_default(column: str) -> str:
+    return f"coalesce({column}, {PERSONNEL_DEFAULTS[column]})"
+
+
+PERSONNEL_COLUMNS = "id, name, rank, " + ", ".join(
+    f"{_with_default(c)} AS {c}"
+    for c in (
+        "unit",
+        "band",
+        "initial_elo",
+        "current_elo",
+        "current_potential",
+        "created_at",
+        "active",
+        "synthetic",
+    )
 )
 
 SCHEMA = """
@@ -163,10 +193,22 @@ class Database:
             if next(c[2] for c in info if c[1] == column) != "DOUBLE":
                 conn.execute(f"ALTER TABLE {table} ALTER {column} TYPE DOUBLE")
 
-        # initial_elo was nullable and the API once let a null through; one
-        # such row broke every roster and stats read. Give them the default.
-        for column in ("initial_elo", "current_elo", "current_potential"):
-            conn.execute(f"UPDATE personnel SET {column} = 1000 WHERE {column} IS NULL")
+        # These columns allow NULL and the API once let a null initial_elo
+        # through. Reads tolerate NULLs (PERSONNEL_COLUMNS); store the defaults
+        # too. initial_elo first: the ratings fall back to it.
+        for column in (
+            "initial_elo",
+            "current_elo",
+            "current_potential",
+            "unit",
+            "created_at",
+            "active",
+            "synthetic",
+        ):
+            conn.execute(
+                f"UPDATE personnel SET {column} = {PERSONNEL_DEFAULTS[column]} "
+                f"WHERE {column} IS NULL"
+            )
 
         unbanded = conn.execute(
             "SELECT DISTINCT rank FROM personnel WHERE band IS NULL"
@@ -236,7 +278,7 @@ class Database:
                 conn.execute(
                     f"""
                     SELECT {PERSONNEL_COLUMNS} FROM personnel
-                    WHERE id = ? AND active = TRUE
+                    WHERE id = ? AND {ACTIVE}
                     """,
                     (personnel_id,),
                 )
@@ -253,7 +295,7 @@ class Database:
         """Get personnel, highest performance rating first"""
         where, params = [], []
         if active_only:
-            where.append("active = TRUE")
+            where.append(ACTIVE)
         if band:
             where.append("band = ?")
             params.append(band)
@@ -351,7 +393,7 @@ class Database:
                              ELSE r.ratee_b_elo_after END AS elo_score
                     FROM personnel p
                     JOIN ratings r ON p.id = r.ratee_a_id OR p.id = r.ratee_b_id
-                    WHERE p.active = TRUE AND r.track = ? AND r.outcome <> ?
+                    WHERE coalesce(p.active, TRUE) AND r.track = ? AND r.outcome <> ?
                     ORDER BY r.id
                     """,
                     (track, CANT_JUDGE),
@@ -663,8 +705,10 @@ class Database:
             people = dict_rows(
                 conn.execute(
                     f"""
-                    SELECT id, band, unit, {column} AS rating FROM personnel
-                    WHERE id IN (?, ?) AND active = TRUE
+                    SELECT id, {_with_default("band")} AS band,
+                           {_with_default("unit")} AS unit,
+                           {_with_default(column)} AS rating
+                    FROM personnel WHERE id IN (?, ?) AND {ACTIVE}
                     """,
                     (a_id, b_id),
                 )
