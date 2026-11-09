@@ -206,7 +206,7 @@ def get_population(
                 FROM ratings
                 WHERE track = ? AND quarter BETWEEN ? AND ? AND cross_unit
                   AND outcome <> '{CANT_JUDGE}' {'AND band = ?' if band else ''}
-                GROUP BY 1, 2 ORDER BY comparisons DESC
+                GROUP BY 1, 2 ORDER BY comparisons DESC, 1, 2
                 """,
                 [track, first, last] + ([band] if band else []),
             )

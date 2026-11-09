@@ -339,7 +339,8 @@ def test_budget_out_of_range_is_rejected(client):
         client.post("/api/rounds/new", json={"comparisons_per_officer": 0}).status_code
         == 422
     )
-    assert client.post("/api/rounds/new", json={"cross_unit_share": 2}).status_code == 422
+    response = client.post("/api/rounds/new", json={"cross_unit_share": 2})
+    assert response.status_code == 422
 
 
 def test_new_round_with_too_few_personnel_is_a_clear_error(client):

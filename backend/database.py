@@ -146,6 +146,12 @@ class Database:
         with self.get_connection() as conn:
             conn.execute(SCHEMA)
             self._migrate(conn)
+            # Fold the schema changes into the file now. DuckDB 1.x cannot
+            # replay an ALTER TABLE on these tables from the write-ahead log,
+            # so a kill before the next checkpoint (a crash, power loss, any
+            # request still holding a connection) would leave a file that no
+            # longer opens. Later writes are plain DML, which replays fine.
+            conn.execute("CHECKPOINT")
 
     def _migrate(self, conn):
         for table, column, ddl in ADDED_COLUMNS:
@@ -200,7 +206,8 @@ class Database:
             cursor = conn.execute(
                 f"""
                 INSERT INTO personnel
-                    (name, rank, unit, band, initial_elo, current_elo, current_potential)
+                    (name, rank, unit, band, initial_elo, current_elo,
+                     current_potential)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 RETURNING {PERSONNEL_COLUMNS}
                 """,
