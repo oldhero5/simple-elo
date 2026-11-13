@@ -9,6 +9,7 @@ from typing import Annotated, Literal, Optional
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StringConstraints,
@@ -30,11 +31,31 @@ MAX_SEED = 2**32 - 1
 
 # Bidirectional embeddings, overrides and isolates: they can make a name
 # display as something else ("Trojan Source").
-_BIDI_CONTROLS = frozenset(map(chr, [*range(0x202A, 0x202F), *range(0x2066, 0x206A)]))
+# The LRM, RLM and ALM marks steer the same way, one character at a time.
+_BIDI_CONTROLS = frozenset(
+    map(chr, [*range(0x202A, 0x202F), *range(0x2066, 0x206A), 0x200E, 0x200F, 0x061C])
+)
+
+# Letters and symbols that render as nothing: Hangul fillers, the Mongolian
+# vowel separator and the blank Braille pattern.
+_BLANK_LOOKING = frozenset(map(chr, [0x115F, 0x1160, 0x3164, 0xFFA0, 0x180E, 0x2800]))
+
+
+def _visible(c: str) -> bool:
+    return not (
+        c.isspace()
+        or c in _BLANK_LOOKING
+        or unicodedata.category(c) in ("Cf", "Zs", "Mn", "Me")
+    )
+
+
+def _nfc(value):
+    """Normalise before the length check, so the limit counts what is stored."""
+    return unicodedata.normalize("NFC", value) if isinstance(value, str) else value
 
 
 def _printable_text(value: str) -> str:
-    """NFC-normalise, then refuse characters that break or disguise a line.
+    """Refuse characters that break or disguise a line, and invisible text.
 
     Refused: control characters (Cc: NUL, tab, newline, DEL...), the line and
     paragraph separators (Zl, Zp), bidi controls and lone surrogates (Cs).
@@ -42,13 +63,14 @@ def _printable_text(value: str) -> str:
     zero-width non-joiner in Persian names, the zero-width joiner in emoji and
     the soft hyphen, and code points newer than this Python's Unicode (Cn).
     """
-    value = unicodedata.normalize("NFC", value)
     for c in value:
         if unicodedata.category(c) in ("Cc", "Zl", "Zp", "Cs") or c in _BIDI_CONTROLS:
             raise ValueError(
                 "must not contain control characters, line breaks or "
                 "text-direction overrides"
             )
+    if not any(_visible(c) for c in value):
+        raise ValueError("must contain a visible character")
     return value
 
 
@@ -56,6 +78,7 @@ def _text(max_length: int):
     """Trimmed, non-empty, printable text of at most max_length characters."""
     return Annotated[
         str,
+        BeforeValidator(_nfc),
         StringConstraints(strip_whitespace=True, min_length=1, max_length=max_length),
         AfterValidator(_printable_text),
     ]

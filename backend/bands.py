@@ -34,3 +34,9 @@ _RANK_TO_BAND = {
 def band_for_rank(rank: str) -> str:
     """Return the grade band for a rank; anything else is unbanded."""
     return _RANK_TO_BAND.get(rank.strip().upper(), UNBANDED)
+
+
+def band_sql(rank_column: str = "rank") -> str:
+    """SQL that derives the band from a rank column, as band_for_rank does."""
+    whens = " ".join(f"WHEN '{r}' THEN '{b}'" for r, b in _RANK_TO_BAND.items())
+    return f"(CASE upper(trim({rank_column})) {whens} ELSE '{UNBANDED}' END)"

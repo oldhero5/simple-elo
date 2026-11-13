@@ -10,7 +10,7 @@ from typing import List, Optional
 
 import duckdb
 
-from bands import band_for_rank
+from bands import band_for_rank, band_sql
 from elo import A_WINS, B_WINS, CANT_JUDGE, DRAW, apply_outcome
 from errors import RatingError
 from models import (
@@ -40,7 +40,7 @@ QUESTIONS = {
 # not break every roster, stats and round read until the next restart.
 PERSONNEL_DEFAULTS = {
     "unit": "'UNASSIGNED'",
-    "band": "'unbanded'",
+    "band": band_sql("rank"),
     "initial_elo": "1000",
     "current_elo": "coalesce(initial_elo, 1000)",
     "current_potential": "coalesce(initial_elo, 1000)",
