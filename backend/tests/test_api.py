@@ -741,6 +741,9 @@ def test_null_columns_written_while_running_break_no_read(client, database):
     assert shown[elo_null]["current_elo"] == 1000
     assert shown[rest_null]["unit"] == "UNASSIGNED"
     assert shown[rest_null]["active"] is True
+    assert shown[rest_null]["band"] == "tactical"
+    filters = client.get("/api/filters").json()
+    assert "unbanded" not in {b["band"] for b in filters["bands"]}
 
     round_ = start(client, comparisons_per_officer=2)
     for _ in range(round_["total_matchups"]):
@@ -805,6 +808,9 @@ def test_names_are_nfc_normalised(client):
         "a⁦b⁩",  # left-to-right isolate
         "a\x7fb",  # DEL
         "a\nb",
+        "Ali\u200eBob",  # left-to-right mark
+        "Ali\u200fBob",  # right-to-left mark
+        "Ali\u061cBob",  # Arabic letter mark
     ],
 )
 def test_line_breaking_and_disguising_characters_are_refused(client, name):
@@ -816,4 +822,35 @@ def test_line_breaking_and_disguising_characters_are_refused(client, name):
 def test_lone_surrogates_are_refused(client):
     body = '{"name": "a\\ud800b", "rank": "CPT"}'
     response = client.post("/api/personnel", content=body, headers=JSON)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "\u200b",  # zero-width space
+        "\u200b\u200c\u200d",
+        "\u00ad",  # soft hyphen alone
+        "\u3164",  # Hangul filler
+        "\u2800",  # blank Braille pattern
+        "\u0301",  # combining mark alone
+        "\u2060\ufeff",  # word joiner, BOM
+    ],
+)
+def test_invisible_only_names_are_refused(client, name):
+    response = client.post("/api/personnel", json={"name": name, "rank": "CPT"})
+    assert response.status_code == 422, response.text
+    person = add(client, "Visible")
+    response = client.put(f"/api/personnel/{person['id']}", json={"name": name})
+    assert response.status_code == 422
+
+
+def test_length_is_counted_after_nfc(client):
+    # 100 decomposed é (e + combining acute) is 200 code points in, 100 stored.
+    name = "e\u0301" * 100
+    response = client.post("/api/personnel", json={"name": name, "rank": "CPT"})
+    assert response.status_code == 200, response.text
+    assert response.json()["name"] == "\u00e9" * 100
+    too_long = "e\u0301" * 101
+    response = client.post("/api/personnel", json={"name": too_long, "rank": "CPT"})
     assert response.status_code == 422

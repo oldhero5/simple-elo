@@ -11,6 +11,7 @@ from typing import Optional
 
 import numpy as np
 
+from bands import band_sql
 from database import Database, dict_rows
 from elo import CANT_JUDGE
 from replay import DEFAULT_SHUFFLES, shuffled_replay
@@ -36,8 +37,8 @@ def get_filters(db: Database) -> dict:
     with db.get_connection() as conn:
         bands = dict_rows(
             conn.execute(
-                """
-                SELECT coalesce(band, 'unbanded') AS band, count(*) AS officers
+                f"""
+                SELECT coalesce(band, {band_sql("rank")}) AS band, count(*) AS officers
                 FROM personnel
                 WHERE coalesce(active, TRUE) GROUP BY 1 ORDER BY officers DESC
                 """
